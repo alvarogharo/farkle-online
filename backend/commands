@@ -1,0 +1,11 @@
+{"type":"create","playerName":"Juan","victoryScore":500}
+
+{"type":"join","gameCode":"U5KGB","playerName":"María"}
+
+{"type":"roll"}
+
+{"type":"toggle_select","index":2}
+ 
+{"type":"apartar"}
+
+{"type":"bank"}

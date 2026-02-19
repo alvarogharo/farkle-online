@@ -1,0 +1,76 @@
+############################
+# Generales (todos los proyectos)
+############################
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+log/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# IDEs / editores
+.vscode/
+.idea/
+*.swp
+
+############################
+# Frontend (Vue / Node)
+############################
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+dist-ssr/
+.vite/
+.vite-cache/
+.cache/
+
+# Nuxt (por si acaso)
+.nuxt/
+.output/
+
+# Coverage / tests
+coverage/
+.nyc_output/
+
+# Package managers
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+############################
+# Backend (Go)
+############################
+# Binarios compilados
+*.exe
+*.dll
+*.so
+*.dylib
+*.out
+*.test
+
+# Carpeta típica de binarios
+bin/
+
+# Coverage
+*.cover
+coverage.out
+
+# Go workspace (si lo usas)
+go.work
+go.work.sum
+
+############################
+# Docker / misc (si aplica)
+############################
+*.tar
