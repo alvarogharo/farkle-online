@@ -10,9 +10,11 @@ import {
   TOAST_DURATION_MS,
   DICE_SIDES,
   DEFAULT_DICE_COUNT,
+  INITIAL_PLAYERS,
   MSG,
   MSG_SEND,
 } from '@/config.js';
+import { game as msg } from '@/messages.js';
 
 const ws = useWebSocket();
 const inGame = ref(false);
@@ -23,9 +25,8 @@ function applyGameState(data, options = {}) {
   const { preserveDice = false } = options;
   const ps = data.players || [];
   players.value = ps.map((p) => ({
-    name: p.name || 'Jugador',
+    name: p.name || msg.playerDefault,
     total: p.total ?? 0,
-    rounds: [], // El backend no envía rounds; los totals ya están actualizados
   }));
 
   currentPlayerIndex.value = data.currentPlayerIndex ?? 0;
@@ -67,8 +68,8 @@ function applyGameState(data, options = {}) {
     const newPlayerIdx = data.currentPlayerIndex ?? 0;
     const isNewPlayerTurn = myPlayerIndex.value === newPlayerIdx;
     statusMessage.value = isNewPlayerTurn
-      ? `Tienes ${remainingDiceCount.value} dados listos. Pulsa "Tirar dados".`
-      : `Es el turno de ${ps[newPlayerIdx]?.name || 'el jugador'}. Esperando su tirada…`;
+      ? msg.diceReady(remainingDiceCount.value)
+      : msg.waitingForTurn(ps[newPlayerIdx]?.name || msg.playerFallback);
     statusKind.value = 'info';
   }
   hasApartadoThisRoll.value =
@@ -148,12 +149,12 @@ onMounted(() => {
       rollResultPending.value = false;
       isRolling.value = false;
       statusKind.value = 'error';
-      statusMessage.value = data.message || 'Error';
+      statusMessage.value = data.message || msg.errorDefault;
     } else if (data.type === MSG.FARKLE) {
-      const farklePlayerName = players.value[currentPlayerIndex.value]?.name || 'El jugador';
+      const farklePlayerName = players.value[currentPlayerIndex.value]?.name || msg.playerDefault;
       const farkleMsg = myPlayerIndex.value === currentPlayerIndex.value
-        ? 'Farkle: pierdes los puntos del turno'
-        : `¡${farklePlayerName} pierde sus puntos por Farkle!`;
+        ? msg.farkleSelf
+        : msg.farkleOther(farklePlayerName);
       farklePendingTransition.value = true;
       statusMessage.value = '';
       const elapsed = rollResultTime ? Date.now() - rollResultTime : ROLL_DISPLAY_MS;
@@ -163,36 +164,36 @@ onMounted(() => {
         farkleToastTimeoutId = null;
       }, waitForAnimation);
     } else if (data.type === MSG.HOT_DICE) {
-      const hotDicePlayerName = players.value[currentPlayerIndex.value]?.name || 'El jugador';
+      const hotDicePlayerName = players.value[currentPlayerIndex.value]?.name || msg.playerDefault;
       const hotDiceMsg = myPlayerIndex.value === currentPlayerIndex.value
-        ? '¡Mano limpia! Puedes volver a tirar los 6 dados'
-        : `¡${hotDicePlayerName} ha conseguido mano limpia!`;
+        ? msg.hotDiceSelf
+        : msg.hotDiceOther(hotDicePlayerName);
       showToast(hotDiceMsg, 'success');
     } else if (data.type === MSG.TURN_CHANGED) {
       const nextIdx = 1 - currentPlayerIndex.value;
       const turnMsg = myPlayerIndex.value === nextIdx
-        ? '¡Tu turno!'
-        : (data.message || 'Cambio de turno');
+        ? msg.turnYourTurn
+        : (data.message || msg.turnChanged);
       showToast(turnMsg, 'info');
     } else if (data.type === MSG.FINAL_ROUND) {
       statusKind.value = 'success';
       const iTriggered = myPlayerIndex.value === currentPlayerIndex.value;
       const finalMsg = iTriggered
-        ? 'Has alcanzado la meta. El otro jugador tiene un último turno.'
-        : '¡Ronda final! Este es tu último turno.';
+        ? msg.finalRoundTriggered
+        : msg.finalRoundLastTurn;
       statusMessage.value = finalMsg;
     } else if (data.type === MSG.GAME_OVER) {
       statusKind.value = 'success';
       const winnerIdx = data.winner;
       const winnerName = winnerIdx >= 0 && players.value[winnerIdx] ? players.value[winnerIdx].name : null;
       const gameOverMsg = winnerName && myPlayerIndex.value === winnerIdx
-        ? '¡Ganas la partida!'
-        : (winnerName ? `${winnerName} gana la partida` : 'Partida terminada');
+        ? msg.gameOverYouWin
+        : (winnerName ? msg.gameOverOtherWins(winnerName) : msg.gameOverFinished);
       statusMessage.value = gameOverMsg;
     } else if (data.type === MSG.PLAYER_DISCONNECTED) {
       finishedByDisconnect.value = true;
       statusKind.value = 'success';
-      statusMessage.value = data.message || 'El otro jugador se ha desconectado. Ganas la partida.';
+      statusMessage.value = data.message || msg.disconnectYouWin;
     }
   });
 });
@@ -223,10 +224,7 @@ function goToLobby() {
   }
 }
 
-const players = ref([
-  { name: 'Jugador 1', total: 0, rounds: [] },
-  { name: 'Jugador 2', total: 0, rounds: [] },
-]);
+const players = ref(INITIAL_PLAYERS.map((p) => ({ ...p })));
 const currentPlayerIndex = ref(0);
 const victoryScore = ref(2000);
 const winnerIndex = ref(null);
@@ -317,7 +315,7 @@ const rollDices = () => {
         value: Math.floor(Math.random() * DICE_SIDES) + 1,
       }));
     };
-    rollPlaceholderIntervalId = setInterval(rollPlaceholder, 80);
+    rollPlaceholderIntervalId = setInterval(rollPlaceholder, ROLL_ANIMATION_INTERVAL_MS);
   }
   // Si ya hay dados (re-tirada), solo se sacuden, no cambian de valor hasta roll_result
   ws.send({ type: MSG_SEND.ROLL });
@@ -361,10 +359,7 @@ const bankTurn = () => {
 const resetGame = () => {
   clearRollingTimers();
   isRolling.value = false;
-  players.value = [
-    { name: 'Jugador 1', total: 0, rounds: [] },
-    { name: 'Jugador 2', total: 0, rounds: [] },
-  ];
+  players.value = INITIAL_PLAYERS.map((p) => ({ ...p }));
   currentPlayerIndex.value = 0;
   winnerIndex.value = null;
   turnPoints.value = 0;
@@ -406,16 +401,16 @@ onBeforeUnmount(() => {
       class="btn btn--secondary"
       @click="goToLobby"
     >
-      Volver al lobby
+      {{ msg.backToLobby }}
     </button>
 
     <!-- Overlay de partida terminada -->
     <div v-if="appState === 'finished'" class="game-over-overlay">
       <div class="game-over-card">
-        <h2 class="game-over-title">Partida terminada</h2>
+        <h2 class="game-over-title">{{ msg.gameOverTitle }}</h2>
         <template v-if="finishedByDisconnect">
           <p class="game-over-result game-over-result--disconnect">
-            El otro jugador se ha desconectado. Ganas la partida por abandono.
+            {{ msg.disconnectOverlay }}
           </p>
         </template>
         <template v-else>
@@ -423,7 +418,7 @@ onBeforeUnmount(() => {
             class="game-over-result"
             :class="{ 'game-over-result--win': myPlayerIndex === winnerIndex, 'game-over-result--lose': myPlayerIndex !== winnerIndex }"
           >
-            {{ myPlayerIndex === winnerIndex ? '¡Has ganado!' : 'Has perdido' }}
+            {{ myPlayerIndex === winnerIndex ? msg.youWin : msg.youLose }}
           </p>
         </template>
         <div class="game-over-scores">
@@ -441,7 +436,7 @@ onBeforeUnmount(() => {
           class="btn btn--primary"
           @click="goToLobby"
         >
-          Volver al lobby
+          {{ msg.backToLobby }}
         </button>
       </div>
     </div>
@@ -452,7 +447,7 @@ onBeforeUnmount(() => {
         class="final-round-banner"
       >
         <span class="final-round-banner__icon">🏁</span>
-        ¡Ronda final! {{ finalRoundTriggerIndex === myPlayerIndex ? 'Has alcanzado la meta. El otro jugador tiene un último turno.' : `Último turno de ${players[1 - finalRoundTriggerIndex]?.name}.` }}
+        ¡Ronda final! {{ finalRoundTriggerIndex === myPlayerIndex ? msg.finalRoundBannerTriggered : msg.finalRoundBannerOther(players[1 - finalRoundTriggerIndex]?.name || msg.playerDefault) }}
       </div>
       <div
         v-for="(p, idx) in players"
@@ -499,7 +494,7 @@ onBeforeUnmount(() => {
 
     <section class="controls">
       <h2>
-        {{ isMyTurn ? 'Tu turno' : `Turno de ${players[currentPlayerIndex]?.name}` }} · Puntos del turno: {{ turnPoints }}
+        {{ isMyTurn ? msg.yourTurn : msg.turnOf(players[currentPlayerIndex]?.name || msg.playerDefault) }} · Puntos del turno: {{ turnPoints }}
       </h2>
 
       <div
@@ -530,10 +525,10 @@ onBeforeUnmount(() => {
           class="dice-empty"
         >
           <template v-if="isMyTurn">
-            Tienes {{ remainingDiceCount }} dados listos. Pulsa “Tirar dados”.
+            {{ msg.diceReady(remainingDiceCount) }}
           </template>
           <template v-else>
-            Es el turno de {{ players[currentPlayerIndex]?.name }}. Esperando su tirada…
+            {{ msg.waitingForTurn(players[currentPlayerIndex]?.name || msg.playerDefault) }}
           </template>
         </div>
       </div>
@@ -546,7 +541,7 @@ onBeforeUnmount(() => {
         :disabled="farklePendingTransition || !isMyTurn || isRolling || winnerIndex !== null || (dices.length > 0 && !hasApartadoThisRoll)"
         @click="rollDices"
       >
-        {{ isRolling ? 'Tirando...' : 'Tirar dados' }}
+        {{ isRolling ? msg.rolling : msg.rollDice }}
       </button>
 
       <button
@@ -555,7 +550,7 @@ onBeforeUnmount(() => {
         :disabled="farklePendingTransition || !isMyTurn || isRolling || !hasSelection || winnerIndex !== null || !hasRolledThisTurn"
         @click="apartarSeleccionados"
       >
-        Apartar
+        {{ msg.apartar }}
       </button>
 
       <button
@@ -564,7 +559,7 @@ onBeforeUnmount(() => {
         :disabled="farklePendingTransition || !canBank || !isMyTurn"
         @click="bankTurn"
       >
-        Plantarse
+        {{ msg.bank }}
       </button>
     </section>
 
@@ -572,13 +567,13 @@ onBeforeUnmount(() => {
       v-if="turnMoves.length"
       class="saved-section"
     >
-      <h3>Apartados del turno</h3>
+      <h3>{{ msg.savedSection }}</h3>
       <div
         v-for="move in turnMoves"
         :key="move.id"
         class="saved-group"
       >
-        <span class="saved-label">Lote {{ move.id }}:</span>
+        <span class="saved-label">{{ msg.lotLabel(move.id) }}:</span>
         <div class="saved-dice-list">
           <Die
             v-for="(valor, idx) in move.values"

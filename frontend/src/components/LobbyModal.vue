@@ -7,6 +7,7 @@ import {
   MSG_LOBBY,
   MSG_SEND,
 } from '@/config.js';
+import { lobby as lobbyMsg } from '@/messages.js';
 
 const props = defineProps({
   /** Función para enviar mensajes por WebSocket */
@@ -45,7 +46,7 @@ function clearErrors() {
 
 function handleMessage(data) {
   if (data.type === MSG_LOBBY.ERROR) {
-    serverError.value = data.message || 'Error del servidor';
+    serverError.value = data.message || lobbyMsg.serverError;
     createLoading.value = false;
     joinLoading.value = false;
     return;
@@ -81,7 +82,7 @@ function capitalizeName(s) {
 
 function doCreate() {
   clearErrors();
-  const name = capitalizeName(createName.value.trim()) || 'Jugador 1';
+  const name = capitalizeName(createName.value.trim()) || lobbyMsg.defaultPlayer1;
   const victoryScore = Math.max(
     MIN_VICTORY_SCORE,
     Math.min(MAX_VICTORY_SCORE, Number(createVictoryScore.value) || DEFAULT_VICTORY_SCORE),
@@ -92,10 +93,10 @@ function doCreate() {
 
 function doJoin() {
   clearErrors();
-  const name = capitalizeName(joinName.value.trim()) || 'Jugador 2';
+  const name = capitalizeName(joinName.value.trim()) || lobbyMsg.defaultPlayer2;
   const code = joinCode.value.trim().toUpperCase();
   if (!code) {
-    serverError.value = 'Introduce el código de la partida';
+    serverError.value = lobbyMsg.codeRequired;
     return;
   }
   joinLoading.value = true;
@@ -177,7 +178,7 @@ onUnmounted(() => {
 
       <!-- Pantalla de espera tras crear partida -->
       <div v-if="waitingForPlayer" class="waiting-section">
-        <p class="waiting-text">Comparte este código o enlace para que alguien se una a la partida:</p>
+        <p class="waiting-text">{{ lobbyMsg.shareHint }}</p>
         <div class="code-display" :class="{ 'code-display--copied': copyFeedback }">
           {{ pendingGameCode }}
         </div>
@@ -188,7 +189,7 @@ onUnmounted(() => {
             :class="{ 'btn--copied': copyFeedback }"
             @click="copyCode"
           >
-            {{ copyFeedback ? '¡Copiado!' : 'Copiar código' }}
+            {{ copyFeedback ? lobbyMsg.copyCodeDone : lobbyMsg.copyCode }}
           </button>
           <button
             type="button"
@@ -196,10 +197,10 @@ onUnmounted(() => {
             :class="{ 'btn--copied': linkCopyFeedback }"
             @click="copyLink"
           >
-            {{ linkCopyFeedback ? '¡Enlace copiado!' : 'Copiar enlace' }}
+            {{ linkCopyFeedback ? lobbyMsg.copyLinkDone : lobbyMsg.copyLink }}
           </button>
         </div>
-        <p class="waiting-hint">Esperando que alguien se una…</p>
+        <p class="waiting-hint">{{ lobbyMsg.waitingHint }}</p>
       </div>
 
       <template v-else>
@@ -229,7 +230,7 @@ onUnmounted(() => {
             v-model="createName"
             type="text"
             class="lobby-input"
-            placeholder="Jugador 1"
+            :placeholder="lobbyMsg.defaultPlayer1"
             :disabled="!connected"
           >
         </label>
@@ -255,7 +256,7 @@ onUnmounted(() => {
 
       <form v-else class="lobby-form" @submit.prevent="doJoin">
         <p v-if="joinViaLink" class="join-link-intro">
-          Has llegado mediante un enlace. Introduce tu nombre para unirte a la partida.
+          {{ lobbyMsg.joinLinkIntro }}
         </p>
         <label class="lobby-label">
           Nombre
@@ -263,7 +264,7 @@ onUnmounted(() => {
             v-model="joinName"
             type="text"
             class="lobby-input"
-            :placeholder="joinViaLink ? 'Tu nombre' : 'Jugador 2'"
+            :placeholder="joinViaLink ? lobbyMsg.yourName : lobbyMsg.defaultPlayer2"
             :disabled="!connected"
           >
         </label>

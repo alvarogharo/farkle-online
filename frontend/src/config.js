@@ -18,6 +18,13 @@ export const TOAST_DURATION_MS = 2000;
 export const DICE_SIDES = 6;
 export const DEFAULT_DICE_COUNT = 6;
 
+// ─── Jugadores ──────────────────────────────────────────────────────────────
+export const NUM_PLAYERS = 2;
+export const INITIAL_PLAYERS = [
+  { name: 'Jugador 1', total: 0 },
+  { name: 'Jugador 2', total: 0 },
+];
+
 // ─── Puntuación (lobby y validación) ───────────────────────────────────────
 export const DEFAULT_VICTORY_SCORE = 2000;
 export const MIN_VICTORY_SCORE = 100;
