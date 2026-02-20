@@ -6,10 +6,15 @@ import { useWebSocket } from '@/composables/useWebSocket.js';
 
 const ws = useWebSocket();
 const inGame = ref(false);
+
+const ROLL_DISPLAY_MS = 1200;
+const TOAST_DELAY_MS = 200;
+const TOAST_DURATION_MS = 2000;
 const gameCode = ref('');
 const myPlayerIndex = ref(-1);
 
-function applyGameState(data) {
+function applyGameState(data, options = {}) {
+  const { preserveDice = false } = options;
   const ps = data.players || [];
   players.value = ps.map((p) => ({
     name: p.name || 'Jugador',
@@ -23,15 +28,16 @@ function applyGameState(data) {
   finalRoundTriggerIndex.value = data.finalRoundTriggerIndex >= 0 ? data.finalRoundTriggerIndex : null;
 
   const diceArr = data.dice || [];
-  dices.value = diceArr.map((d) => ({ value: d.value ?? 1, held: !!d.held }));
-
-  const selIndices = data.selectedIndices || [];
-  selected.value = dices.value.map((_, i) => selIndices.includes(i));
+  if (!preserveDice) {
+    dices.value = diceArr.map((d) => ({ value: d.value ?? 1, held: !!d.held }));
+    const selIndices = data.selectedIndices || [];
+    selected.value = dices.value.map((_, i) => selIndices.includes(i));
+  }
 
   let rem = data.remainingDiceCount;
   if (rem === undefined || rem === null) {
-    rem = dices.value.length === 0 ? 6 : dices.value.filter((d) => !d.held).length;
-  } else if (dices.value.length === 0 && rem === 0) {
+    rem = diceArr.length === 0 ? 6 : diceArr.filter((d) => !d?.held).length;
+  } else if (diceArr.length === 0 && rem === 0) {
     rem = 6; // Mano limpia: siguiente tirada con 6 dados
   }
   remainingDiceCount.value = rem;
@@ -44,12 +50,24 @@ function applyGameState(data) {
     points: m.points ?? 0,
   }));
 
-  isRolling.value = false;
+  if (!rollResultPending.value) isRolling.value = false;
   isTurnEnding.value = false;
-  hasRolledThisTurn.value = dices.value.length > 0;
+  hasRolledThisTurn.value = preserveDice ? false : dices.value.length > 0;
+  if (statusKind.value === 'error') {
+    statusMessage.value = '';
+    statusKind.value = 'info';
+  }
+  if (preserveDice) {
+    const newPlayerIdx = data.currentPlayerIndex ?? 0;
+    const isNewPlayerTurn = myPlayerIndex.value === newPlayerIdx;
+    statusMessage.value = isNewPlayerTurn
+      ? `Tienes ${remainingDiceCount.value} dados listos. Pulsa "Tirar dados".`
+      : `Es el turno de ${ps[newPlayerIdx]?.name || 'el jugador'}. Esperando su tirada…`;
+    statusKind.value = 'info';
+  }
   hasApartadoThisRoll.value =
     dices.value.some((d) => d.held) || (dices.value.length === 0 && turnPoints.value > 0);
-  // No borrar statusMessage aquí para preservar farkle, final_round, game_over
+  // No borrar statusMessage aquí para preservar farkle, final_round, game_over (cuando !preserveDice)
 }
 
 let unsubscribeGameMessages = () => {};
@@ -61,14 +79,22 @@ onMounted(() => {
     if (data.type === 'game_state') {
       if (farklePendingTransition.value) {
         pendingGameState.value = data;
+        const toastDisappearAt = rollResultTime
+          ? rollResultTime + ROLL_DISPLAY_MS + TOAST_DELAY_MS + TOAST_DURATION_MS
+          : Date.now() + TOAST_DURATION_MS;
+        const delayMs = Math.max(0, toastDisappearAt - Date.now());
         farkleDelayTimeoutId = setTimeout(() => {
-          applyGameState(pendingGameState.value);
+          applyGameState(pendingGameState.value, { preserveDice: true });
           pendingGameState.value = null;
           farklePendingTransition.value = false;
           farkleDelayTimeoutId = null;
-        }, 3000);
+        }, delayMs);
       } else {
-        applyGameState(data);
+        const newPlayerIdx = data.currentPlayerIndex ?? 0;
+        const isTurnChange = newPlayerIdx !== currentPlayerIndex.value;
+        const isTurnOrFarkleTransition =
+          (!data.dice || data.dice.length === 0) && dices.value.length > 0 && isTurnChange;
+        applyGameState(data, { preserveDice: isTurnOrFarkleTransition });
       }
     } else if (data.type === 'roll_result') {
       if (rollPlaceholderIntervalId) {
@@ -76,38 +102,60 @@ onMounted(() => {
         rollPlaceholderIntervalId = null;
       }
       const diceArr = data.dice || [];
-      dices.value = diceArr.map((d) => ({ value: d.value ?? 1, held: !!d.held }));
-      selected.value = dices.value.map(() => false);
+      const realDice = diceArr.map((d) => ({ value: d.value ?? 1, held: !!d.held }));
+      rollResultTime = Date.now();
+      selected.value = realDice.map(() => false);
       hasRolledThisTurn.value = true;
-      const elapsed = rollStartTime ? Date.now() - rollStartTime : 0;
-      const minRollMs = 1200;
-      const settleMs = 500;
-      const wait = Math.max(0, minRollMs - elapsed) + settleMs;
+      rollResultPending.value = true;
+      isRolling.value = true;
+      // Mostrar dados con valores aleatorios que cambian durante la animación (solo los no held)
+      dices.value = realDice.map((d) =>
+        d.held ? d : { ...d, value: Math.floor(Math.random() * 6) + 1 },
+      );
+      const rollDisplayInterval = () => {
+        dices.value = dices.value.map((d) =>
+          d.held ? d : { ...d, value: Math.floor(Math.random() * 6) + 1 },
+        );
+      };
+      rollPlaceholderIntervalId = setInterval(rollDisplayInterval, 80);
       rollAnimationTimeoutId = setTimeout(() => {
+        clearInterval(rollPlaceholderIntervalId);
+        rollPlaceholderIntervalId = null;
+        dices.value = realDice;
         isRolling.value = false;
+        rollResultPending.value = false;
         rollAnimationTimeoutId = null;
-      }, wait);
+      }, ROLL_DISPLAY_MS);
     } else if (data.type === 'error') {
       if (rollPlaceholderIntervalId) {
         clearInterval(rollPlaceholderIntervalId);
         rollPlaceholderIntervalId = null;
       }
-      isRolling.value = false;
-      statusKind.value = 'error';
-      statusMessage.value = data.message || 'Error';
-    } else if (data.type === 'farkle') {
       if (rollAnimationTimeoutId) {
         clearTimeout(rollAnimationTimeoutId);
         rollAnimationTimeoutId = null;
       }
+      if (farkleToastTimeoutId) {
+        clearTimeout(farkleToastTimeoutId);
+        farkleToastTimeoutId = null;
+      }
+      rollResultPending.value = false;
       isRolling.value = false;
-      statusMessage.value = '';
+      statusKind.value = 'error';
+      statusMessage.value = data.message || 'Error';
+    } else if (data.type === 'farkle') {
       const farklePlayerName = players.value[currentPlayerIndex.value]?.name || 'El jugador';
       const farkleMsg = myPlayerIndex.value === currentPlayerIndex.value
         ? 'Farkle: pierdes los puntos del turno'
         : `¡${farklePlayerName} pierde sus puntos por Farkle!`;
-      showToast(farkleMsg, 'warn');
       farklePendingTransition.value = true;
+      statusMessage.value = '';
+      const elapsed = rollResultTime ? Date.now() - rollResultTime : ROLL_DISPLAY_MS;
+      const waitForAnimation = Math.max(0, ROLL_DISPLAY_MS - elapsed) + TOAST_DELAY_MS;
+      farkleToastTimeoutId = setTimeout(() => {
+        showToast(farkleMsg, 'warn');
+        farkleToastTimeoutId = null;
+      }, waitForAnimation);
     } else if (data.type === 'hot_dice') {
       const hotDicePlayerName = players.value[currentPlayerIndex.value]?.name || 'El jugador';
       const hotDiceMsg = myPlayerIndex.value === currentPlayerIndex.value
@@ -195,15 +243,18 @@ function showToast(message, kind = 'info') {
   toastTimeoutId = setTimeout(() => {
     toast.value.show = false;
     toastTimeoutId = null;
-  }, 2000);
+  }, TOAST_DURATION_MS);
 }
 
 let rollAnimationTimeoutId = null;
 let rollPlaceholderIntervalId = null;
 let rollStartTime = null;
+let rollResultTime = null;
 const farklePendingTransition = ref(false);
 const pendingGameState = ref(null);
+const rollResultPending = ref(false);
 let farkleDelayTimeoutId = null;
+let farkleToastTimeoutId = null;
 const clearRollingTimers = () => {
   if (rollAnimationTimeoutId) {
     clearTimeout(rollAnimationTimeoutId);
@@ -216,6 +267,10 @@ const clearRollingTimers = () => {
   if (farkleDelayTimeoutId) {
     clearTimeout(farkleDelayTimeoutId);
     farkleDelayTimeoutId = null;
+  }
+  if (farkleToastTimeoutId) {
+    clearTimeout(farkleToastTimeoutId);
+    farkleToastTimeoutId = null;
   }
 };
 
@@ -260,6 +315,10 @@ const toggleSelect = (index) => {
   if (winnerIndex.value !== null) return;
   if (!hasRolledThisTurn.value || !dices.value.length) return;
   if (dices.value[index]?.held) return;
+  if (statusKind.value === 'error') {
+    statusMessage.value = '';
+    statusKind.value = 'info';
+  }
   ws.send({ type: 'toggle_select', index });
 };
 
@@ -428,7 +487,7 @@ onBeforeUnmount(() => {
             v-for="(die, index) in dices"
             :key="index"
             :value="die.value"
-            :is-rolling="isRolling"
+            :is-rolling="isRolling && !die.held"
             :selected="selected[index] && !die.held"
             :disabled="farklePendingTransition || !isMyTurn || winnerIndex !== null || die.held || !hasRolledThisTurn"
             :held="die.held"

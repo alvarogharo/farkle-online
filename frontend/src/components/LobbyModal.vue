@@ -63,9 +63,17 @@ function handleMessage(data) {
   }
 }
 
+function capitalizeName(s) {
+  return s
+    .split(/\s+/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : ''))
+    .join(' ')
+    .trim();
+}
+
 function doCreate() {
   clearErrors();
-  const name = createName.value.trim() || 'Jugador 1';
+  const name = capitalizeName(createName.value.trim()) || 'Jugador 1';
   const victoryScore = Math.max(100, Math.min(100000, Number(createVictoryScore.value) || 2000));
   createLoading.value = true;
   props.send({ type: 'create', playerName: name, victoryScore });
@@ -73,7 +81,7 @@ function doCreate() {
 
 function doJoin() {
   clearErrors();
-  const name = joinName.value.trim() || 'Jugador 2';
+  const name = capitalizeName(joinName.value.trim()) || 'Jugador 2';
   const code = joinCode.value.trim().toUpperCase();
   if (!code) {
     serverError.value = 'Introduce el código de la partida';
