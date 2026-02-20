@@ -601,7 +601,7 @@ func (c *Client) handleApartar() {
 	}
 	g.selectedIndices = nil
 
-	// Mano limpia: si todos están held, volver a tener 6 para tirar
+	// Mano limpia (hot dice): si todos están held, volver a tener 6 para tirar
 	allHeld := true
 	for _, d := range g.dice {
 		if !d.Held {
@@ -611,6 +611,13 @@ func (c *Client) handleApartar() {
 	}
 	if allHeld {
 		g.dice = nil
+		g.mu.Unlock()
+		c.hub.broadcastToGame(c.gameCode, map[string]any{
+			"type":    "hot_dice",
+			"message": "¡Mano limpia! Puedes volver a tirar los 6 dados",
+		})
+		c.hub.broadcastGameState(c.gameCode)
+		return
 	}
 
 	g.mu.Unlock()
@@ -681,7 +688,12 @@ func (c *Client) handleBank() {
 		return
 	}
 
-	g.currentPlayerIndex = (g.currentPlayerIndex + 1) % 2
+	nextPlayer := (g.currentPlayerIndex + 1) % 2
+	g.currentPlayerIndex = nextPlayer
+	nextName := "Jugador " + strconv.Itoa(nextPlayer+1)
+	if nextPlayer < len(g.playerNames) && g.playerNames[nextPlayer] != "" {
+		nextName = g.playerNames[nextPlayer]
+	}
 
 	// Si la ronda final ya estaba activa y el otro jugador acaba de terminar su turno
 	if g.finalRoundTriggerIndex >= 0 && finishedIndex != g.finalRoundTriggerIndex {
@@ -705,5 +717,9 @@ func (c *Client) handleBank() {
 	}
 
 	g.mu.Unlock()
+	c.hub.broadcastToGame(c.gameCode, map[string]any{
+		"type":    "turn_changed",
+		"message": "Turno de " + nextName,
+	})
 	c.hub.broadcastGameState(c.gameCode)
 }

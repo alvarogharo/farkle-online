@@ -3,15 +3,107 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import Die from '@/components/Die.vue';
 import LobbyModal from '@/components/LobbyModal.vue';
 import { useWebSocket } from '@/composables/useWebSocket.js';
-import { hasAnyScoringOption, scoreSelection } from '@/game/farkleScoring.js';
 
 const ws = useWebSocket();
 const inGame = ref(false);
 const gameCode = ref('');
 const myPlayerIndex = ref(-1);
 
+function applyGameState(data) {
+  const ps = data.players || [];
+  players.value = ps.map((p) => ({
+    name: p.name || 'Jugador',
+    total: p.total ?? 0,
+    rounds: [], // El backend no envía rounds; los totals ya están actualizados
+  }));
+
+  currentPlayerIndex.value = data.currentPlayerIndex ?? 0;
+  victoryScore.value = data.victoryScore ?? 2000;
+  winnerIndex.value = data.winnerIndex >= 0 ? data.winnerIndex : null;
+  finalRoundTriggerIndex.value = data.finalRoundTriggerIndex >= 0 ? data.finalRoundTriggerIndex : null;
+
+  const diceArr = data.dice || [];
+  dices.value = diceArr.map((d) => ({ value: d.value ?? 1, held: !!d.held }));
+
+  const selIndices = data.selectedIndices || [];
+  selected.value = dices.value.map((_, i) => selIndices.includes(i));
+
+  let rem = data.remainingDiceCount;
+  if (rem === undefined || rem === null) {
+    rem = dices.value.length === 0 ? 6 : dices.value.filter((d) => !d.held).length;
+  } else if (dices.value.length === 0 && rem === 0) {
+    rem = 6; // Mano limpia: siguiente tirada con 6 dados
+  }
+  remainingDiceCount.value = rem;
+  turnPoints.value = data.turnPoints ?? 0;
+
+  const moves = data.turnMoves || [];
+  turnMoves.value = moves.map((m) => ({
+    id: m.id ?? 0,
+    values: m.values || [],
+    points: m.points ?? 0,
+  }));
+
+  isRolling.value = false;
+  isTurnEnding.value = false;
+  hasRolledThisTurn.value = dices.value.length > 0;
+  hasApartadoThisRoll.value =
+    dices.value.some((d) => d.held) || (dices.value.length === 0 && turnPoints.value > 0);
+  // No borrar statusMessage aquí para preservar farkle, final_round, game_over
+}
+
+let unsubscribeGameMessages = () => {};
+
 onMounted(() => {
   ws.connect();
+  unsubscribeGameMessages = ws.onMessage((data) => {
+    if (!inGame.value) return;
+    if (data.type === 'game_state') {
+      applyGameState(data);
+    } else if (data.type === 'roll_result') {
+      if (rollPlaceholderIntervalId) {
+        clearInterval(rollPlaceholderIntervalId);
+        rollPlaceholderIntervalId = null;
+      }
+      const diceArr = data.dice || [];
+      dices.value = diceArr.map((d) => ({ value: d.value ?? 1, held: !!d.held }));
+      selected.value = dices.value.map(() => false);
+      hasRolledThisTurn.value = true;
+      const elapsed = rollStartTime ? Date.now() - rollStartTime : 0;
+      const minRollMs = 1200;
+      const settleMs = 500;
+      const wait = Math.max(0, minRollMs - elapsed) + settleMs;
+      rollAnimationTimeoutId = setTimeout(() => {
+        isRolling.value = false;
+        rollAnimationTimeoutId = null;
+      }, wait);
+    } else if (data.type === 'error') {
+      if (rollPlaceholderIntervalId) {
+        clearInterval(rollPlaceholderIntervalId);
+        rollPlaceholderIntervalId = null;
+      }
+      isRolling.value = false;
+      statusKind.value = 'error';
+      statusMessage.value = data.message || 'Error';
+    } else if (data.type === 'farkle') {
+      statusKind.value = 'warn';
+      statusMessage.value = data.message || 'Farkle: pierdes los puntos del turno';
+      showToast(data.message || 'Farkle: pierdes los puntos del turno', 'warn');
+    } else if (data.type === 'hot_dice') {
+      showToast(data.message || '¡Mano limpia! Puedes volver a tirar los 6 dados', 'success');
+    } else if (data.type === 'turn_changed') {
+      showToast(data.message || 'Cambio de turno', 'info');
+    } else if (data.type === 'final_round') {
+      statusKind.value = 'success';
+      statusMessage.value = data.message || 'Ronda final para el otro jugador';
+    } else if (data.type === 'game_over') {
+      statusKind.value = 'success';
+      statusMessage.value = data.message || 'Partida terminada';
+    } else if (data.type === 'player_disconnected') {
+      statusKind.value = 'success';
+      statusMessage.value = data.message || 'El otro jugador se ha desconectado. Ganas la partida.';
+    }
+  });
 });
 
 const onLobbySuccess = ({ gameCode: code, playerIndex }) => {
@@ -19,6 +111,20 @@ const onLobbySuccess = ({ gameCode: code, playerIndex }) => {
   myPlayerIndex.value = playerIndex;
   inGame.value = true;
 };
+
+// Estados de la app: lobby | playing | finished
+const appState = computed(() => {
+  if (!inGame.value) return 'lobby';
+  if (winnerIndex.value !== null) return 'finished';
+  return 'playing';
+});
+
+function goToLobby() {
+  inGame.value = false;
+  gameCode.value = '';
+  myPlayerIndex.value = -1;
+  resetGame();
+}
 
 const players = ref([
   { name: 'Jugador 1', total: 0, rounds: [] },
@@ -45,166 +151,82 @@ const turnMoves = ref([]);
 const statusMessage = ref('');
 const statusKind = ref('info'); // info | error | success | warn
 
-const ROLL_DURATION_MS = 1500;
-const END_TURN_DELAY_MS = 2000;
+const toast = ref({ show: false, message: '', kind: 'info' });
+let toastTimeoutId = null;
+function showToast(message, kind = 'info') {
+  if (toastTimeoutId) clearTimeout(toastTimeoutId);
+  toast.value = { show: true, message, kind };
+  toastTimeoutId = setTimeout(() => {
+    toast.value.show = false;
+    toastTimeoutId = null;
+  }, 2000);
+}
 
-let rollIntervalId = null;
-let rollTimeoutId = null;
-
-const scheduleNextPlayer = () => {
-  if (winnerIndex.value !== null) return;
-  isTurnEnding.value = true;
-  const finishedIndex = currentPlayerIndex.value;
-  setTimeout(() => {
-    if (winnerIndex.value !== null) return;
-
-    // Si ya se ha disparado la ronda final y acaba de jugar el otro jugador,
-    // aquí termina la partida comparando puntuaciones.
-    if (
-      finalRoundTriggerIndex.value !== null
-      && finishedIndex !== finalRoundTriggerIndex.value
-    ) {
-      isTurnEnding.value = false;
-      const [p0, p1] = players.value;
-      const totals = [p0.total, p1.total];
-      let winner = 0;
-      if (totals[1] > totals[0]) winner = 1;
-
-      winnerIndex.value = winner;
-      statusKind.value = 'success';
-      if (totals[0] === totals[1]) {
-        statusMessage.value = `Empate a ${totals[0]} puntos. Gana ${players.value[winner].name} por desempate.`;
-      } else {
-        statusMessage.value = `${players.value[winner].name} gana con ${totals[winner]} puntos.`;
-      }
-      return;
-    }
-
-    nextPlayer();
-  }, END_TURN_DELAY_MS);
+let rollAnimationTimeoutId = null;
+let rollPlaceholderIntervalId = null;
+let rollStartTime = null;
+const clearRollingTimers = () => {
+  if (rollAnimationTimeoutId) {
+    clearTimeout(rollAnimationTimeoutId);
+    rollAnimationTimeoutId = null;
+  }
+  if (rollPlaceholderIntervalId) {
+    clearInterval(rollPlaceholderIntervalId);
+    rollPlaceholderIntervalId = null;
+  }
 };
 
-const rollOnce = () => {
+const isMyTurn = computed(() =>
+  inGame.value
+  && myPlayerIndex.value >= 0
+  && currentPlayerIndex.value === myPlayerIndex.value,
+);
+
+const rollDices = () => {
+  if (!isMyTurn.value) return;
+  if (isRolling.value) return;
+  if (winnerIndex.value !== null) return;
+  if (dices.value.length > 0 && !hasApartadoThisRoll.value) return;
+
+  isRolling.value = true;
+  rollStartTime = Date.now();
+  statusMessage.value = '';
+  const count = dices.value.length || remainingDiceCount.value;
   if (dices.value.length === 0) {
-    dices.value = Array.from({ length: remainingDiceCount.value }, () => ({
+    // Primera tirada: mostrar dados con valores que cambian (animación de lanzamiento)
+    dices.value = Array.from({ length: count }, () => ({
       value: Math.floor(Math.random() * 6) + 1,
       held: false,
     }));
     selected.value = dices.value.map(() => false);
-    return;
+    const rollPlaceholder = () => {
+      dices.value = dices.value.map((d) => ({
+        ...d,
+        value: Math.floor(Math.random() * 6) + 1,
+      }));
+    };
+    rollPlaceholderIntervalId = setInterval(rollPlaceholder, 80);
   }
-
-  dices.value = dices.value.map((die) =>
-    die.held ? die : { ...die, value: Math.floor(Math.random() * 6) + 1 },
-  );
-  selected.value = dices.value.map(() => false);
-};
-
-const clearRollingTimers = () => {
-  if (rollIntervalId !== null) {
-    clearInterval(rollIntervalId);
-    rollIntervalId = null;
-  }
-  if (rollTimeoutId !== null) {
-    clearTimeout(rollTimeoutId);
-    rollTimeoutId = null;
-  }
-};
-
-const rollDices = () => {
-  if (isTurnEnding.value) return;
-  if (isRolling.value) return;
-  if (winnerIndex.value !== null) return;
-  // Regla: tras cada tirada debes apartar al menos una combinación puntuable
-  if (dices.value.length > 0 && !hasApartadoThisRoll.value) return;
-
-  isRolling.value = true;
-  statusMessage.value = '';
-  hasApartadoThisRoll.value = false;
-  clearRollingTimers();
-
-  rollOnce(); // primera tirada inmediata
-  rollIntervalId = setInterval(rollOnce, 80);
-
-  rollTimeoutId = setTimeout(() => {
-    clearRollingTimers();
-    rollOnce(); // tirada final
-    isRolling.value = false;
-    hasApartadoThisRoll.value = false;
-    hasRolledThisTurn.value = true;
-
-    const activeValues = dices.value.filter((d) => !d.held).map((d) => d.value);
-    if (!hasAnyScoringOption(activeValues)) {
-      statusKind.value = 'warn';
-      statusMessage.value = `Farkle: pierdes ${turnPoints.value} puntos del turno.`;
-      turnPoints.value = 0;
-      turnMoves.value = [];
-      selected.value = dices.value.map(() => false);
-      hasApartadoThisRoll.value = false;
-      scheduleNextPlayer();
-    }
-  }, ROLL_DURATION_MS);
+  // Si ya hay dados (re-tirada), solo se sacuden, no cambian de valor hasta roll_result
+  ws.send({ type: 'roll' });
 };
 
 const toggleSelect = (index) => {
-  if (isTurnEnding.value) return;
-  if (isRolling.value) return;
+  if (!isMyTurn.value) return;
+  if (isTurnEnding.value || isRolling.value) return;
   if (winnerIndex.value !== null) return;
-  if (!hasRolledThisTurn.value) return;
-  if (!dices.value.length) return;
+  if (!hasRolledThisTurn.value || !dices.value.length) return;
   if (dices.value[index]?.held) return;
-  selected.value[index] = !selected.value[index];
+  ws.send({ type: 'toggle_select', index });
 };
 
 const hasSelection = computed(() => selected.value.some((v) => v));
 
 const apartarSeleccionados = () => {
-  if (!hasSelection.value) return;
-  if (isRolling.value) return;
-  if (winnerIndex.value !== null) return;
-  if (!hasRolledThisTurn.value) return;
-  if (!dices.value.length) return;
-
-  const currentDices = dices.value;
-  const currentSelected = selected.value;
-
-  const pickedValues = currentDices
-    .filter((die, idx) => currentSelected[idx] && !die.held)
-    .map((die) => die.value);
-  const scoring = scoreSelection(pickedValues);
-
-  if (!scoring.valid) {
-    statusKind.value = 'error';
-    statusMessage.value = 'Selección inválida: todos los dados seleccionados deben puntuar.';
-    return;
-  }
-
-  statusMessage.value = '';
-  turnPoints.value += scoring.points;
-  hasApartadoThisRoll.value = true;
-  turnMoves.value.push({
-    id: turnMoves.value.length + 1,
-    values: pickedValues,
-    points: scoring.points,
-    breakdown: scoring.breakdown,
-  });
-
-  // Mantener todos los dados visibles; los apartados se quedan "held" (desactivados)
-  dices.value = currentDices.map((die, idx) =>
-    currentSelected[idx] && !die.held ? { ...die, held: true } : die,
-  );
-  remainingDiceCount.value = dices.value.filter((d) => !d.held).length;
-  selected.value = dices.value.map(() => false);
-
-  // Mano limpia: se puntúa usando los 6 dados -> vuelves a tener 6 para tirar
-  if (remainingDiceCount.value === 0) {
-    remainingDiceCount.value = 6;
-    dices.value = [];
-    selected.value = [];
-    hasApartadoThisRoll.value = true;
-    statusKind.value = 'success';
-    statusMessage.value = 'Mano limpia: puedes volver a tirar los 6 dados.';
-  }
+  if (!hasSelection.value || !isMyTurn.value) return;
+  if (isRolling.value || winnerIndex.value !== null) return;
+  if (!hasRolledThisTurn.value || !dices.value.length) return;
+  ws.send({ type: 'apartar' });
 };
 
 // Regla: no se puede "plantarse" con una tirada sin haber apartado al menos una vez
@@ -216,58 +238,8 @@ const canBank = computed(() =>
 );
 
 const bankTurn = () => {
-  if (isTurnEnding.value) return;
-  if (!canBank.value) return;
-
-  const p = players.value[currentPlayerIndex.value];
-  p.total += turnPoints.value;
-  p.rounds.push({
-    id: p.rounds.length + 1,
-    points: turnPoints.value,
-    moves: turnMoves.value,
-  });
-
-  // Si aún no se ha disparado la ronda final y este jugador alcanza o supera la meta,
-  // se marca el inicio de la ronda final: el otro jugador tendrá un último turno.
-  if (finalRoundTriggerIndex.value === null && p.total >= victoryScore.value) {
-    finalRoundTriggerIndex.value = currentPlayerIndex.value;
-    statusKind.value = 'success';
-    statusMessage.value = `${p.name} alcanza ${p.total} puntos. Turno final para el otro jugador.`;
-    scheduleNextPlayer();
-    return;
-  }
-
-  scheduleNextPlayer();
-};
-
-const nextPlayer = () => {
-  clearRollingTimers();
-  isRolling.value = false;
-
-  turnPoints.value = 0;
-  turnMoves.value = [];
-  isTurnEnding.value = false;
-  hasRolledThisTurn.value = false;
-
-  if (dices.value.length > 0) {
-    // Reactivar todos los dados manteniendo el último valor visible
-    dices.value = dices.value.map((die) => ({
-      value: die.value,
-      held: false,
-    }));
-    remainingDiceCount.value = dices.value.length;
-    selected.value = dices.value.map(() => false);
-    // Para el nuevo jugador, estos dados cuentan como "listos para tirar" sin exigir un apartado previo
-    hasApartadoThisRoll.value = true;
-  } else {
-    remainingDiceCount.value = 6;
-    selected.value = [];
-    hasApartadoThisRoll.value = false;
-  }
-
-  currentPlayerIndex.value = (currentPlayerIndex.value + 1) % players.value.length;
-  statusMessage.value = '';
-  statusKind.value = 'info';
+  if (!canBank.value || !isMyTurn.value) return;
+  ws.send({ type: 'bank' });
 };
 
 const resetGame = () => {
@@ -294,6 +266,8 @@ const resetGame = () => {
 
 onBeforeUnmount(() => {
   clearRollingTimers();
+  if (toastTimeoutId) clearTimeout(toastTimeoutId);
+  unsubscribeGameMessages();
 });
 </script>
 
@@ -309,12 +283,30 @@ onBeforeUnmount(() => {
   <main v-show="inGame" class="page">
     <h1>Farkle</h1>
     <button
+      v-if="appState === 'finished'"
       type="button"
       class="btn btn--secondary"
-      @click="resetGame"
+      @click="goToLobby"
     >
-      Nueva partida
+      Volver al lobby
     </button>
+
+    <!-- Overlay de partida terminada -->
+    <div v-if="appState === 'finished'" class="game-over-overlay">
+      <div class="game-over-card">
+        <h2 class="game-over-title">Partida terminada</h2>
+        <p class="game-over-winner">
+          {{ players[winnerIndex].name }} gana con {{ players[winnerIndex].total }} puntos
+        </p>
+        <button
+          type="button"
+          class="btn btn--primary"
+          @click="goToLobby"
+        >
+          Volver al lobby
+        </button>
+      </div>
+    </div>
     
     <section class="scoreboard">
       <div
@@ -394,7 +386,7 @@ onBeforeUnmount(() => {
             :value="die.value"
             :is-rolling="isRolling"
             :selected="selected[index] && !die.held"
-            :disabled="winnerIndex !== null || die.held || !hasRolledThisTurn"
+            :disabled="!isMyTurn || winnerIndex !== null || die.held || !hasRolledThisTurn"
             :held="die.held"
             @toggle="toggleSelect(index)"
           />
@@ -412,7 +404,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="btn"
-        :disabled="isRolling || winnerIndex !== null || (dices.length > 0 && !hasApartadoThisRoll)"
+        :disabled="!isMyTurn || isRolling || winnerIndex !== null || (dices.length > 0 && !hasApartadoThisRoll)"
         @click="rollDices"
       >
         {{ isRolling ? 'Tirando...' : 'Tirar dados' }}
@@ -421,7 +413,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="btn btn--secondary"
-        :disabled="isRolling || !hasSelection || winnerIndex !== null || !hasRolledThisTurn"
+        :disabled="!isMyTurn || isRolling || !hasSelection || winnerIndex !== null || !hasRolledThisTurn"
         @click="apartarSeleccionados"
       >
         Apartar
@@ -430,7 +422,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="btn btn--bank"
-        :disabled="!canBank"
+        :disabled="!canBank || !isMyTurn"
         @click="bankTurn"
       >
         Plantarse
@@ -465,6 +457,17 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </section>
+
+    <!-- Toast para Farkle, Hot dice, cambio de turno -->
+    <Transition name="toast">
+      <div
+        v-if="toast.show"
+        class="toast"
+        :class="`toast--${toast.kind}`"
+      >
+        {{ toast.message }}
+      </div>
+    </Transition>
   </main>
 </template>
 
@@ -487,6 +490,83 @@ h1 {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-shadow: 0 0 15px rgba(0, 0, 0, 0.6);
+}
+
+.game-over-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 4, 11, 0.9);
+  backdrop-filter: blur(6px);
+}
+
+.game-over-card {
+  padding: 2rem 2.5rem;
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(31, 41, 55, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.game-over-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.5rem;
+  color: #f9fafb;
+}
+
+.game-over-winner {
+  margin: 0 0 1.5rem;
+  font-size: 1.25rem;
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 400;
+  padding: 1rem 2rem;
+  border-radius: 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.toast--warn {
+  background: rgba(245, 158, 11, 0.95);
+  color: #1f2937;
+  border: 2px solid rgba(251, 191, 36, 0.8);
+}
+
+.toast--success {
+  background: rgba(34, 197, 94, 0.95);
+  color: #f9fafb;
+  border: 2px solid rgba(74, 222, 128, 0.8);
+}
+
+.toast--info {
+  background: rgba(59, 130, 246, 0.95);
+  color: #f9fafb;
+  border: 2px solid rgba(96, 165, 250, 0.8);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(1rem);
 }
 
 .controls {

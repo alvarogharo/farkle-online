@@ -1,6 +1,6 @@
 import { ref, onUnmounted } from 'vue'
 
-const DEFAULT_URL = 'ws://localhost:8080/ws'
+const DEFAULT_URL = 'ws://172.20.6.189:8080/ws'
 
 /**
  * Composable para gestión de conexión WebSocket con el backend Farkle.

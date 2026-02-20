@@ -158,7 +158,7 @@ const pips = computed(() => {
 }
 
 .dice--rolling {
-  animation: shake 0.25s linear infinite;
+  animation: shake 0.15s ease-in-out infinite;
 }
 
 .pip {
@@ -190,20 +190,20 @@ const pips = computed(() => {
 }
 
 @keyframes shake {
-  0% {
+  0%, 100% {
     transform: translate(0, 0) rotate(0deg);
   }
-  25% {
-    transform: translate(1px, -1px) rotate(-2deg);
+  20% {
+    transform: translate(-2px, -3px) rotate(-4deg);
   }
-  50% {
-    transform: translate(-1px, 1px) rotate(2deg);
+  40% {
+    transform: translate(2px, 2px) rotate(4deg);
   }
-  75% {
-    transform: translate(1px, 1px) rotate(-1deg);
+  60% {
+    transform: translate(-2px, 2px) rotate(-3deg);
   }
-  100% {
-    transform: translate(0, 0) rotate(0deg);
+  80% {
+    transform: translate(2px, -2px) rotate(3deg);
   }
 }
 
