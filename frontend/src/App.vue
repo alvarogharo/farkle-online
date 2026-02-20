@@ -1,7 +1,24 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import Die from '@/components/Die.vue';
+import LobbyModal from '@/components/LobbyModal.vue';
+import { useWebSocket } from '@/composables/useWebSocket.js';
 import { hasAnyScoringOption, scoreSelection } from '@/game/farkleScoring.js';
+
+const ws = useWebSocket();
+const inGame = ref(false);
+const gameCode = ref('');
+const myPlayerIndex = ref(-1);
+
+onMounted(() => {
+  ws.connect();
+});
+
+const onLobbySuccess = ({ gameCode: code, playerIndex }) => {
+  gameCode.value = code;
+  myPlayerIndex.value = playerIndex;
+  inGame.value = true;
+};
 
 const players = ref([
   { name: 'Jugador 1', total: 0, rounds: [] },
@@ -281,7 +298,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="page">
+  <LobbyModal
+    v-if="!inGame"
+    :send="ws.send"
+    :on-message="ws.onMessage"
+    :connected="ws.connected.value"
+    :last-error="ws.lastError?.value ?? null"
+    @success="onLobbySuccess"
+  />
+  <main v-show="inGame" class="page">
     <h1>Farkle</h1>
     <button
       type="button"
