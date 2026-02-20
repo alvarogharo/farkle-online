@@ -2,15 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import Die from '@/components/Die.vue';
 import LobbyModal from '@/components/LobbyModal.vue';
+import { useGameState } from '@/composables/useGameState.js';
 import { useWebSocket } from '@/composables/useWebSocket.js';
 import {
-  ROLL_DISPLAY_MS,
-  ROLL_ANIMATION_INTERVAL_MS,
-  TOAST_DELAY_MS,
-  TOAST_DURATION_MS,
   DICE_SIDES,
-  DEFAULT_DICE_COUNT,
-  INITIAL_PLAYERS,
   MSG,
   MSG_SEND,
 } from '@/config.js';
@@ -21,61 +16,39 @@ const inGame = ref(false);
 const gameCode = ref('');
 const myPlayerIndex = ref(-1);
 
-function applyGameState(data, options = {}) {
-  const { preserveDice = false } = options;
-  const ps = data.players || [];
-  players.value = ps.map((p) => ({
-    name: p.name || msg.playerDefault,
-    total: p.total ?? 0,
-  }));
+const game = useGameState(myPlayerIndex);
 
-  currentPlayerIndex.value = data.currentPlayerIndex ?? 0;
-  victoryScore.value = data.victoryScore ?? 2000;
-  winnerIndex.value = data.winnerIndex >= 0 ? data.winnerIndex : null;
-  finalRoundTriggerIndex.value = data.finalRoundTriggerIndex >= 0 ? data.finalRoundTriggerIndex : null;
-
-  const diceArr = data.dice || [];
-  if (!preserveDice) {
-    dices.value = diceArr.map((d) => ({ value: d.value ?? 1, held: !!d.held }));
-    const selIndices = data.selectedIndices || [];
-    selected.value = dices.value.map((_, i) => selIndices.includes(i));
-  }
-
-  let rem = data.remainingDiceCount;
-  if (rem === undefined || rem === null) {
-    rem = diceArr.length === 0 ? DEFAULT_DICE_COUNT : diceArr.filter((d) => !d?.held).length;
-  } else if (diceArr.length === 0 && rem === 0) {
-    rem = DEFAULT_DICE_COUNT; // Mano limpia: siguiente tirada con 6 dados
-  }
-  remainingDiceCount.value = rem;
-  turnPoints.value = data.turnPoints ?? 0;
-
-  const moves = data.turnMoves || [];
-  turnMoves.value = moves.map((m) => ({
-    id: m.id ?? 0,
-    values: m.values || [],
-    points: m.points ?? 0,
-  }));
-
-  if (!rollResultPending.value) isRolling.value = false;
-  isTurnEnding.value = false;
-  hasRolledThisTurn.value = preserveDice ? false : dices.value.length > 0;
-  if (statusKind.value === 'error') {
-    statusMessage.value = '';
-    statusKind.value = 'info';
-  }
-  if (preserveDice) {
-    const newPlayerIdx = data.currentPlayerIndex ?? 0;
-    const isNewPlayerTurn = myPlayerIndex.value === newPlayerIdx;
-    statusMessage.value = isNewPlayerTurn
-      ? msg.diceReady(remainingDiceCount.value)
-      : msg.waitingForTurn(ps[newPlayerIdx]?.name || msg.playerFallback);
-    statusKind.value = 'info';
-  }
-  hasApartadoThisRoll.value =
-    dices.value.some((d) => d.held) || (dices.value.length === 0 && turnPoints.value > 0);
-  // No borrar statusMessage aquí para preservar farkle, final_round, game_over (cuando !preserveDice)
-}
+const {
+  players,
+  currentPlayerIndex,
+  victoryScore,
+  winnerIndex,
+  finalRoundTriggerIndex,
+  finishedByDisconnect,
+  dices,
+  remainingDiceCount,
+  isRolling,
+  selected,
+  hasApartadoThisRoll,
+  hasRolledThisTurn,
+  isTurnEnding,
+  turnPoints,
+  turnMoves,
+  statusMessage,
+  statusKind,
+  farklePendingTransition,
+  pendingGameState,
+  rollResultPending,
+  rollResultTime,
+  timerIds,
+  applyGameState,
+  clearRollingTimers,
+  resetGame,
+  ROLL_DISPLAY_MS,
+  ROLL_ANIMATION_INTERVAL_MS,
+  TOAST_DELAY_MS,
+  TOAST_DURATION_MS,
+} = game;
 
 let unsubscribeGameMessages = () => {};
 
@@ -86,15 +59,16 @@ onMounted(() => {
     if (data.type === MSG.GAME_STATE) {
       if (farklePendingTransition.value) {
         pendingGameState.value = data;
-        const toastDisappearAt = rollResultTime
-          ? rollResultTime + ROLL_DISPLAY_MS + TOAST_DELAY_MS + TOAST_DURATION_MS
+        const baseTime = rollResultTime.value ?? 0;
+        const toastDisappearAt = baseTime
+          ? baseTime + ROLL_DISPLAY_MS + TOAST_DELAY_MS + TOAST_DURATION_MS
           : Date.now() + TOAST_DURATION_MS;
         const delayMs = Math.max(0, toastDisappearAt - Date.now());
-        farkleDelayTimeoutId = setTimeout(() => {
+        timerIds.farkleDelayTimeoutId = setTimeout(() => {
           applyGameState(pendingGameState.value, { preserveDice: true });
           pendingGameState.value = null;
           farklePendingTransition.value = false;
-          farkleDelayTimeoutId = null;
+          timerIds.farkleDelayTimeoutId = null;
         }, delayMs);
       } else {
         const newPlayerIdx = data.currentPlayerIndex ?? 0;
@@ -104,13 +78,13 @@ onMounted(() => {
         applyGameState(data, { preserveDice: isTurnOrFarkleTransition });
       }
     } else if (data.type === MSG.ROLL_RESULT) {
-      if (rollPlaceholderIntervalId) {
-        clearInterval(rollPlaceholderIntervalId);
-        rollPlaceholderIntervalId = null;
+      if (timerIds.rollPlaceholderIntervalId) {
+        clearInterval(timerIds.rollPlaceholderIntervalId);
+        timerIds.rollPlaceholderIntervalId = null;
       }
       const diceArr = data.dice || [];
       const realDice = diceArr.map((d) => ({ value: d.value ?? 1, held: !!d.held }));
-      rollResultTime = Date.now();
+      rollResultTime.value = Date.now();
       selected.value = realDice.map(() => false);
       hasRolledThisTurn.value = true;
       rollResultPending.value = true;
@@ -124,27 +98,27 @@ onMounted(() => {
           d.held ? d : { ...d, value: Math.floor(Math.random() * DICE_SIDES) + 1 },
         );
       };
-      rollPlaceholderIntervalId = setInterval(rollDisplayInterval, ROLL_ANIMATION_INTERVAL_MS);
-      rollAnimationTimeoutId = setTimeout(() => {
-        clearInterval(rollPlaceholderIntervalId);
-        rollPlaceholderIntervalId = null;
+      timerIds.rollPlaceholderIntervalId = setInterval(rollDisplayInterval, ROLL_ANIMATION_INTERVAL_MS);
+      timerIds.rollAnimationTimeoutId = setTimeout(() => {
+        clearInterval(timerIds.rollPlaceholderIntervalId);
+        timerIds.rollPlaceholderIntervalId = null;
         dices.value = realDice;
         isRolling.value = false;
         rollResultPending.value = false;
-        rollAnimationTimeoutId = null;
+        timerIds.rollAnimationTimeoutId = null;
       }, ROLL_DISPLAY_MS);
     } else if (data.type === MSG.ERROR) {
-      if (rollPlaceholderIntervalId) {
-        clearInterval(rollPlaceholderIntervalId);
-        rollPlaceholderIntervalId = null;
+      if (timerIds.rollPlaceholderIntervalId) {
+        clearInterval(timerIds.rollPlaceholderIntervalId);
+        timerIds.rollPlaceholderIntervalId = null;
       }
-      if (rollAnimationTimeoutId) {
-        clearTimeout(rollAnimationTimeoutId);
-        rollAnimationTimeoutId = null;
+      if (timerIds.rollAnimationTimeoutId) {
+        clearTimeout(timerIds.rollAnimationTimeoutId);
+        timerIds.rollAnimationTimeoutId = null;
       }
-      if (farkleToastTimeoutId) {
-        clearTimeout(farkleToastTimeoutId);
-        farkleToastTimeoutId = null;
+      if (timerIds.farkleToastTimeoutId) {
+        clearTimeout(timerIds.farkleToastTimeoutId);
+        timerIds.farkleToastTimeoutId = null;
       }
       rollResultPending.value = false;
       isRolling.value = false;
@@ -157,11 +131,11 @@ onMounted(() => {
         : msg.farkleOther(farklePlayerName);
       farklePendingTransition.value = true;
       statusMessage.value = '';
-      const elapsed = rollResultTime ? Date.now() - rollResultTime : ROLL_DISPLAY_MS;
+      const elapsed = rollResultTime.value ? Date.now() - rollResultTime.value : ROLL_DISPLAY_MS;
       const waitForAnimation = Math.max(0, ROLL_DISPLAY_MS - elapsed) + TOAST_DELAY_MS;
-      farkleToastTimeoutId = setTimeout(() => {
+      timerIds.farkleToastTimeoutId = setTimeout(() => {
         showToast(farkleMsg, 'warn');
-        farkleToastTimeoutId = null;
+        timerIds.farkleToastTimeoutId = null;
       }, waitForAnimation);
     } else if (data.type === MSG.HOT_DICE) {
       const hotDicePlayerName = players.value[currentPlayerIndex.value]?.name || msg.playerDefault;
@@ -224,29 +198,6 @@ function goToLobby() {
   }
 }
 
-const players = ref(INITIAL_PLAYERS.map((p) => ({ ...p })));
-const currentPlayerIndex = ref(0);
-const victoryScore = ref(2000);
-const winnerIndex = ref(null);
-const finalRoundTriggerIndex = ref(null);
-const finishedByDisconnect = ref(false);
-
-// Dados visibles en mesa durante la tirada actual:
-// - held=true: ya apartado (no se vuelve a tirar)
-// - held=false: dado activo (se vuelve a tirar al pulsar "Tirar")
-const dices = ref([]);
-const remainingDiceCount = ref(DEFAULT_DICE_COUNT);
-const isRolling = ref(false);
-const selected = ref([]);
-const hasApartadoThisRoll = ref(false);
-const hasRolledThisTurn = ref(false);
-const isTurnEnding = ref(false);
-
-const turnPoints = ref(0);
-const turnMoves = ref([]);
-const statusMessage = ref('');
-const statusKind = ref('info'); // info | error | success | warn
-
 const toast = ref({ show: false, message: '', kind: 'info' });
 let toastTimeoutId = null;
 function showToast(message, kind = 'info') {
@@ -257,34 +208,6 @@ function showToast(message, kind = 'info') {
     toastTimeoutId = null;
   }, TOAST_DURATION_MS);
 }
-
-let rollAnimationTimeoutId = null;
-let rollPlaceholderIntervalId = null;
-let rollStartTime = null;
-let rollResultTime = null;
-const farklePendingTransition = ref(false);
-const pendingGameState = ref(null);
-const rollResultPending = ref(false);
-let farkleDelayTimeoutId = null;
-let farkleToastTimeoutId = null;
-const clearRollingTimers = () => {
-  if (rollAnimationTimeoutId) {
-    clearTimeout(rollAnimationTimeoutId);
-    rollAnimationTimeoutId = null;
-  }
-  if (rollPlaceholderIntervalId) {
-    clearInterval(rollPlaceholderIntervalId);
-    rollPlaceholderIntervalId = null;
-  }
-  if (farkleDelayTimeoutId) {
-    clearTimeout(farkleDelayTimeoutId);
-    farkleDelayTimeoutId = null;
-  }
-  if (farkleToastTimeoutId) {
-    clearTimeout(farkleToastTimeoutId);
-    farkleToastTimeoutId = null;
-  }
-};
 
 const isMyTurn = computed(() =>
   inGame.value
@@ -299,7 +222,6 @@ const rollDices = () => {
   if (dices.value.length > 0 && !hasApartadoThisRoll.value) return;
 
   isRolling.value = true;
-  rollStartTime = Date.now();
   statusMessage.value = '';
   const count = dices.value.length || remainingDiceCount.value;
   if (dices.value.length === 0) {
@@ -315,7 +237,7 @@ const rollDices = () => {
         value: Math.floor(Math.random() * DICE_SIDES) + 1,
       }));
     };
-    rollPlaceholderIntervalId = setInterval(rollPlaceholder, ROLL_ANIMATION_INTERVAL_MS);
+    timerIds.rollPlaceholderIntervalId = setInterval(rollPlaceholder, ROLL_ANIMATION_INTERVAL_MS);
   }
   // Si ya hay dados (re-tirada), solo se sacuden, no cambian de valor hasta roll_result
   ws.send({ type: MSG_SEND.ROLL });
@@ -356,30 +278,10 @@ const bankTurn = () => {
   ws.send({ type: MSG_SEND.BANK });
 };
 
-const resetGame = () => {
-  clearRollingTimers();
-  isRolling.value = false;
-  players.value = INITIAL_PLAYERS.map((p) => ({ ...p }));
-  currentPlayerIndex.value = 0;
-  winnerIndex.value = null;
-  turnPoints.value = 0;
-  turnMoves.value = [];
-  remainingDiceCount.value = DEFAULT_DICE_COUNT;
-  dices.value = [];
-  selected.value = [];
-  hasApartadoThisRoll.value = false;
-  hasRolledThisTurn.value = false;
-  finalRoundTriggerIndex.value = null;
-  finishedByDisconnect.value = false;
-  isTurnEnding.value = false;
-  statusMessage.value = '';
-  statusKind.value = 'info';
-};
-
 onBeforeUnmount(() => {
   clearRollingTimers();
   if (toastTimeoutId) clearTimeout(toastTimeoutId);
-  if (farkleDelayTimeoutId) clearTimeout(farkleDelayTimeoutId);
+  if (timerIds.farkleDelayTimeoutId) clearTimeout(timerIds.farkleDelayTimeoutId);
   unsubscribeGameMessages();
 });
 </script>
