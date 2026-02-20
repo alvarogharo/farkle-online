@@ -11,6 +11,61 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Tipos de mensajes WebSocket
+const (
+	msgPing            = "ping"
+	msgPong            = "pong"
+	msgCreate          = "create"
+	msgJoin            = "join"
+	msgRoll            = "roll"
+	msgToggleSelect    = "toggle_select"
+	msgApartar         = "apartar"
+	msgBank            = "bank"
+	msgError           = "error"
+	msgGameCreated     = "game_created"
+	msgGameJoined      = "game_joined"
+	msgGameState       = "game_state"
+	msgGameOver        = "game_over"
+	msgPlayerJoined    = "player_joined"
+	msgPlayerDisconnected = "player_disconnected"
+	msgRollResult      = "roll_result"
+	msgFarkle          = "farkle"
+	msgHotDice         = "hot_dice"
+	msgTurnChanged     = "turn_changed"
+	msgFinalRound      = "final_round"
+)
+
+const (
+	jsonKeyType   = "type"
+	jsonKeyMsg    = "message"
+	jsonKeyGameCode = "gameCode"
+	jsonKeyWinner = "winner"
+)
+
+// Mensajes de error
+const (
+	errNoGame            = "no estás en ninguna partida"
+	errGameNotFound      = "partida no encontrada"
+	errNotYourTurn       = "no es tu turno"
+	errGameFinished      = "la partida ha terminado"
+	errGameFull          = "partida llena"
+	errGameCodeRequired  = "gameCode requerido"
+	errInvalidJSON       = "JSON inválido"
+	errInvalidIndex      = "índice inválido"
+	errRollWithoutApartar = "debes apartar al menos un dado que puntúe antes de volver a tirar"
+	errSelectHeldDie     = "no puedes seleccionar un dado ya apartado"
+	errRollFirst         = "primero debes tirar los dados"
+	errSelectBeforeApart = "debes seleccionar dados antes de apartar"
+	errSelectNotHeld     = "selecciona dados que no estén ya apartados"
+	errInvalidSelection  = "selección inválida: todos los dados deben puntuar"
+	errBankNoPoints      = "no tienes puntos que plantarte"
+	errBankMustApartar   = "debes apartar al menos una combinación antes de plantarte"
+)
+
+const (
+	invalidIndex = -1
+)
+
 type InMessage struct {
 	Type         string `json:"type"`
 	GameCode     string `json:"gameCode"`
@@ -47,12 +102,6 @@ type TurnMove struct {
 	Points int   `json:"points"`
 }
 
-const (
-	defaultVictoryScore   = 2000
-	finishedGameRetention = 5 * time.Minute
-	cleanupInterval       = 1 * time.Minute
-)
-
 type Game struct {
 	code                  string
 	clients               []*Client
@@ -81,10 +130,9 @@ func newHub() *Hub {
 }
 
 func generateGameCode() string {
-	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	b := make([]byte, 5)
+	b := make([]byte, Cfg.GameCodeLength)
 	for i := range b {
-		b[i] = chars[rand.Intn(len(chars))]
+		b[i] = Cfg.GameCodeChars[rand.Intn(len(Cfg.GameCodeChars))]
 	}
 	return string(b)
 }
@@ -146,25 +194,25 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 	g.mu.Unlock()
 
 	h.broadcastToGame(gameCode, map[string]any{
-		"type":    "player_disconnected",
-		"message": "El otro jugador se ha desconectado. Ganas la partida.",
-		"winner":  otherIndex,
+		jsonKeyType:  msgPlayerDisconnected,
+		jsonKeyMsg:   "El otro jugador se ha desconectado. Ganas la partida.",
+		jsonKeyWinner: otherIndex,
 	})
 	h.broadcastGameState(gameCode)
 }
 
-// cleanupFinishedGames elimina partidas terminadas hace más de finishedGameRetention.
+// cleanupFinishedGames elimina partidas terminadas hace más de FinishedGameRetention.
 func (h *Hub) cleanupFinishedGames() {
-	for range time.Tick(cleanupInterval) {
+	for range time.Tick(Cfg.CleanupInterval) {
 		h.mu.Lock()
 		now := time.Now()
 		for code, g := range h.games {
 			g.mu.RLock()
-			finished := g.winnerIndex >= 0 && !g.finishedAt.IsZero() && now.Sub(g.finishedAt) > finishedGameRetention
+			finished := g.winnerIndex >= 0 && !g.finishedAt.IsZero() && now.Sub(g.finishedAt) > Cfg.FinishedGameRetention
 			g.mu.RUnlock()
 			if finished {
 				delete(h.games, code)
-				log.Printf("Partida %s eliminada (terminada hace >%v)", code, finishedGameRetention)
+				log.Printf("Partida %s eliminada (terminada hace >%v)", code, Cfg.FinishedGameRetention)
 			}
 		}
 		h.mu.Unlock()
@@ -185,27 +233,27 @@ func (c *Client) readPump() {
 
 		var msg InMessage
 		if err := json.Unmarshal(message, &msg); err != nil {
-			c.sendJSON(map[string]string{"type": "error", "message": "JSON inválido"})
+			c.sendError(errInvalidJSON)
 			continue
 		}
 
 		switch msg.Type {
-		case "ping":
-			c.sendJSON(map[string]string{"type": "pong"})
-		case "create":
+		case msgPing:
+			c.sendJSON(map[string]string{jsonKeyType: msgPong})
+		case msgCreate:
 			c.handleCreate(msg)
-		case "join":
+		case msgJoin:
 			c.handleJoin(msg)
-		case "roll":
+		case msgRoll:
 			c.handleRoll()
-		case "toggle_select":
+		case msgToggleSelect:
 			c.handleToggleSelect(msg)
-		case "apartar":
+		case msgApartar:
 			c.handleApartar()
-		case "bank":
+		case msgBank:
 			c.handleBank()
 		default:
-			c.sendJSON(map[string]string{"type": "error", "message": "tipo desconocido: " + msg.Type})
+			c.sendError("tipo desconocido: " + msg.Type)
 		}
 	}
 }
@@ -230,6 +278,10 @@ func (c *Client) sendJSON(v any) {
 	}
 }
 
+func (c *Client) sendError(msg string) {
+	c.sendJSON(map[string]string{jsonKeyType: msgError, jsonKeyMsg: msg})
+}
+
 func (c *Client) handleCreate(msg InMessage) {
 	code := generateGameCode()
 	name := msg.PlayerName
@@ -237,17 +289,17 @@ func (c *Client) handleCreate(msg InMessage) {
 		name = "Jugador 1"
 	}
 	victoryScore := msg.VictoryScore
-	if victoryScore < 100 || victoryScore > 100000 {
-		victoryScore = defaultVictoryScore
+	if victoryScore < Cfg.MinVictoryScore || victoryScore > Cfg.MaxVictoryScore {
+		victoryScore = Cfg.DefaultVictoryScore
 	}
 	g := &Game{
 		code:                   code,
-		clients:                make([]*Client, 2),
-		playerNames:            make([]string, 2),
-		totals:                 make([]int, 2),
+		clients:                make([]*Client, Cfg.NumPlayers),
+		playerNames:            make([]string, Cfg.NumPlayers),
+		totals:                 make([]int, Cfg.NumPlayers),
 		victoryScore:           victoryScore,
-		finalRoundTriggerIndex: -1,
-		winnerIndex:            -1,
+		finalRoundTriggerIndex: invalidIndex,
+		winnerIndex:            invalidIndex,
 	}
 	g.clients[0] = c
 	g.playerNames[0] = name
@@ -258,12 +310,12 @@ func (c *Client) handleCreate(msg InMessage) {
 	c.hub.games[code] = g
 	c.hub.mu.Unlock()
 
-	c.sendJSON(map[string]any{"type": "game_created", "gameCode": code})
+	c.sendJSON(map[string]any{jsonKeyType: msgGameCreated, jsonKeyGameCode: code})
 }
 
 func (c *Client) handleJoin(msg InMessage) {
 	if msg.GameCode == "" {
-		c.sendJSON(map[string]string{"type": "error", "message": "gameCode requerido"})
+		c.sendError(errGameCodeRequired)
 		return
 	}
 
@@ -272,13 +324,12 @@ func (c *Client) handleJoin(msg InMessage) {
 	c.hub.mu.Unlock()
 
 	if !ok {
-		c.sendJSON(map[string]string{"type": "error", "message": "partida no encontrada"})
+		c.sendError(errGameNotFound)
 		return
 	}
 
-	// Asignar como jugador 1 (índice 1)
 	if g.clients[1] != nil {
-		c.sendJSON(map[string]string{"type": "error", "message": "partida llena"})
+		c.sendError(errGameFull)
 		return
 	}
 
@@ -292,13 +343,12 @@ func (c *Client) handleJoin(msg InMessage) {
 	}
 	g.playerNames[1] = name
 
-	c.sendJSON(map[string]any{"type": "game_joined", "gameCode": msg.GameCode, "playerIndex": 1})
+	c.sendJSON(map[string]any{jsonKeyType: msgGameJoined, jsonKeyGameCode: msg.GameCode, "playerIndex": 1})
 
-	// Notificar al creador que alguien se unió
 	c.hub.broadcastToGame(msg.GameCode, map[string]any{
-		"type":        "player_joined",
-		"playerIndex": 1,
-		"playerName":  name,
+		jsonKeyType:      msgPlayerJoined,
+		"playerIndex":    1,
+		"playerName":     name,
 	})
 
 	// Broadcast game_state a ambos (partida completa, empieza el juego)
@@ -336,8 +386,8 @@ func (h *Hub) broadcastGameState(gameCode string) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	players := make([]map[string]any, 2)
-	for i := 0; i < 2; i++ {
+	players := make([]map[string]any, Cfg.NumPlayers)
+	for i := 0; i < Cfg.NumPlayers; i++ {
 		name := "Jugador " + strconv.Itoa(i+1)
 		if i < len(g.playerNames) && g.playerNames[i] != "" {
 			name = g.playerNames[i]
@@ -365,7 +415,7 @@ func (h *Hub) broadcastGameState(gameCode string) {
 		turnMoves = []TurnMove{}
 	}
 	state := map[string]any{
-		"type":                   "game_state",
+		jsonKeyType:               msgGameState,
 		"players":                players,
 		"currentPlayerIndex":     g.currentPlayerIndex,
 		"dice":                   g.dice,
@@ -383,7 +433,7 @@ func (h *Hub) broadcastGameState(gameCode string) {
 
 func (c *Client) handleRoll() {
 	if c.gameCode == "" {
-		c.sendJSON(map[string]string{"type": "error", "message": "no estás en ninguna partida"})
+		c.sendError(errNoGame)
 		return
 	}
 
@@ -391,34 +441,33 @@ func (c *Client) handleRoll() {
 	g, ok := c.hub.games[c.gameCode]
 	c.hub.mu.RUnlock()
 	if !ok {
-		c.sendJSON(map[string]string{"type": "error", "message": "partida no encontrada"})
+		c.sendError(errGameNotFound)
 		return
 	}
 
 	g.mu.Lock()
 	if g.winnerIndex >= 0 {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "la partida ha terminado"})
+		c.sendError(errGameFinished)
 		return
 	}
 	if g.currentPlayerIndex != c.playerIndex {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "no es tu turno"})
+		c.sendError(errNotYourTurn)
 		return
 	}
-	// Regla: no puedes tirar de nuevo hasta haber apartado al menos una combinación puntuable
 	if len(g.dice) > 0 && !g.hasApartadoThisRoll {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "debes apartar al menos un dado que puntúe antes de volver a tirar"})
+		c.sendError(errRollWithoutApartar)
 		return
 	}
 
 	var activeValues []int
 	if len(g.dice) == 0 {
-		dice := make([]Die, 6)
-		activeValues = make([]int, 6)
+		dice := make([]Die, Cfg.NumDice)
+		activeValues = make([]int, Cfg.NumDice)
 		for i := range dice {
-			v := rand.Intn(6) + 1
+			v := rand.Intn(Cfg.NumDice) + 1
 			dice[i] = Die{Value: v, Held: false}
 			activeValues[i] = v
 		}
@@ -428,7 +477,7 @@ func (c *Client) handleRoll() {
 		activeValues = make([]int, 0, len(g.dice))
 		for i := range g.dice {
 			if !g.dice[i].Held {
-				v := rand.Intn(6) + 1
+				v := rand.Intn(Cfg.NumDice) + 1
 				g.dice[i].Value = v
 				activeValues = append(activeValues, v)
 			}
@@ -439,17 +488,17 @@ func (c *Client) handleRoll() {
 	g.hasApartadoThisRoll = false
 	g.mu.Unlock()
 
-	c.hub.broadcastToGame(c.gameCode, map[string]any{"type": "roll_result", "dice": g.dice})
+	c.hub.broadcastToGame(c.gameCode, map[string]any{jsonKeyType: msgRollResult, "dice": g.dice})
 
 	// Farkle: si no hay ninguna combinación puntuable en los dados activos, pierde los puntos del turno
 	if !HasAnyScoringOption(activeValues) {
 		g.mu.Lock()
 		finishedIndex := g.currentPlayerIndex
-			g.turnPoints = 0
-			g.turnMoves = nil
-			g.dice = nil
-			g.selectedIndices = nil
-			g.currentPlayerIndex = (g.currentPlayerIndex + 1) % 2
+		g.turnPoints = 0
+		g.turnMoves = nil
+		g.dice = nil
+		g.selectedIndices = nil
+		g.currentPlayerIndex = (g.currentPlayerIndex + 1) % Cfg.NumPlayers
 
 		// Si la ronda final estaba activa y el otro jugador acaba de Farklear
 		if g.finalRoundTriggerIndex >= 0 && finishedIndex != g.finalRoundTriggerIndex {
@@ -464,12 +513,12 @@ func (c *Client) handleRoll() {
 			g.finishedAt = time.Now()
 			g.turnMoves = nil
 			g.mu.Unlock()
-			c.hub.broadcastToGame(c.gameCode, map[string]any{"type": "farkle", "message": "Farkle: pierdes los puntos del turno"})
-			c.hub.broadcastToGame(c.gameCode, map[string]any{"type": "game_over", "winner": winner, "message": "Partida terminada"})
+			c.hub.broadcastToGame(c.gameCode, map[string]any{jsonKeyType: msgFarkle, jsonKeyMsg: "Farkle: pierdes los puntos del turno"})
+			c.hub.broadcastToGame(c.gameCode, map[string]any{jsonKeyType: msgGameOver, jsonKeyWinner: winner, jsonKeyMsg: "Partida terminada"})
 			c.hub.broadcastGameState(c.gameCode)
 		} else {
 			g.mu.Unlock()
-			c.hub.broadcastToGame(c.gameCode, map[string]any{"type": "farkle", "message": "Farkle: pierdes los puntos del turno"})
+			c.hub.broadcastToGame(c.gameCode, map[string]any{jsonKeyType: msgFarkle, jsonKeyMsg: "Farkle: pierdes los puntos del turno"})
 		}
 	}
 
@@ -478,7 +527,7 @@ func (c *Client) handleRoll() {
 
 func (c *Client) handleToggleSelect(msg InMessage) {
 	if c.gameCode == "" {
-		c.sendJSON(map[string]string{"type": "error", "message": "no estás en ninguna partida"})
+		c.sendError(errNoGame)
 		return
 	}
 
@@ -486,29 +535,29 @@ func (c *Client) handleToggleSelect(msg InMessage) {
 	g, ok := c.hub.games[c.gameCode]
 	c.hub.mu.RUnlock()
 	if !ok {
-		c.sendJSON(map[string]string{"type": "error", "message": "partida no encontrada"})
+		c.sendError(errGameNotFound)
 		return
 	}
 
 	g.mu.Lock()
 	if g.winnerIndex >= 0 {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "la partida ha terminado"})
+		c.sendError(errGameFinished)
 		return
 	}
 	if g.currentPlayerIndex != c.playerIndex {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "no es tu turno"})
+		c.sendError(errNotYourTurn)
 		return
 	}
 	if msg.Index < 0 || msg.Index >= len(g.dice) {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "índice inválido"})
+		c.sendError(errInvalidIndex)
 		return
 	}
 	if g.dice[msg.Index].Held {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "no puedes seleccionar un dado ya apartado"})
+		c.sendError(errSelectHeldDie)
 		return
 	}
 
@@ -531,7 +580,7 @@ func (c *Client) handleToggleSelect(msg InMessage) {
 
 func (c *Client) handleApartar() {
 	if c.gameCode == "" {
-		c.sendJSON(map[string]string{"type": "error", "message": "no estás en ninguna partida"})
+		c.sendError(errNoGame)
 		return
 	}
 
@@ -539,29 +588,29 @@ func (c *Client) handleApartar() {
 	g, ok := c.hub.games[c.gameCode]
 	c.hub.mu.RUnlock()
 	if !ok {
-		c.sendJSON(map[string]string{"type": "error", "message": "partida no encontrada"})
+		c.sendError(errGameNotFound)
 		return
 	}
 
 	g.mu.Lock()
 	if g.winnerIndex >= 0 {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "la partida ha terminado"})
+		c.sendError(errGameFinished)
 		return
 	}
 	if g.currentPlayerIndex != c.playerIndex {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "no es tu turno"})
+		c.sendError(errNotYourTurn)
 		return
 	}
 	if len(g.dice) == 0 {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "primero debes tirar los dados"})
+		c.sendError(errRollFirst)
 		return
 	}
 	if len(g.selectedIndices) == 0 {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "debes seleccionar dados antes de apartar"})
+		c.sendError(errSelectBeforeApart)
 		return
 	}
 
@@ -574,14 +623,14 @@ func (c *Client) handleApartar() {
 	}
 	if len(pickedValues) == 0 {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "selecciona dados que no estén ya apartados"})
+		c.sendError(errSelectNotHeld)
 		return
 	}
 
 	valid, points := ScoreSelection(pickedValues)
 	if !valid {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "selección inválida: todos los dados deben puntuar"})
+		c.sendError(errInvalidSelection)
 		return
 	}
 
@@ -613,8 +662,8 @@ func (c *Client) handleApartar() {
 		g.dice = nil
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
-			"type":    "hot_dice",
-			"message": "¡Mano limpia! Puedes volver a tirar los 6 dados",
+			jsonKeyType: msgHotDice,
+			jsonKeyMsg:  "¡Mano limpia! Puedes volver a tirar los 6 dados",
 		})
 		c.hub.broadcastGameState(c.gameCode)
 		return
@@ -626,7 +675,7 @@ func (c *Client) handleApartar() {
 
 func (c *Client) handleBank() {
 	if c.gameCode == "" {
-		c.sendJSON(map[string]string{"type": "error", "message": "no estás en ninguna partida"})
+		c.sendError(errNoGame)
 		return
 	}
 
@@ -634,24 +683,24 @@ func (c *Client) handleBank() {
 	g, ok := c.hub.games[c.gameCode]
 	c.hub.mu.RUnlock()
 	if !ok {
-		c.sendJSON(map[string]string{"type": "error", "message": "partida no encontrada"})
+		c.sendError(errGameNotFound)
 		return
 	}
 
 	g.mu.Lock()
 	if g.winnerIndex >= 0 {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "la partida ha terminado"})
+		c.sendError(errGameFinished)
 		return
 	}
 	if g.currentPlayerIndex != c.playerIndex {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "no es tu turno"})
+		c.sendError(errNotYourTurn)
 		return
 	}
 	if g.turnPoints <= 0 {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "no tienes puntos que plantarte"})
+		c.sendError(errBankNoPoints)
 		return
 	}
 	hasActiveDice := false
@@ -663,7 +712,7 @@ func (c *Client) handleBank() {
 	}
 	if hasActiveDice && !g.hasApartadoThisRoll {
 		g.mu.Unlock()
-		c.sendJSON(map[string]string{"type": "error", "message": "debes apartar al menos una combinación antes de plantarte"})
+		c.sendError(errBankMustApartar)
 		return
 	}
 
@@ -675,20 +724,19 @@ func (c *Client) handleBank() {
 	g.selectedIndices = nil
 	g.hasApartadoThisRoll = false
 
-	// Si alcanza la meta y aún no se había disparado la ronda final
-	if g.finalRoundTriggerIndex < 0 && g.totals[c.playerIndex] >= g.victoryScore {
+	if g.finalRoundTriggerIndex == invalidIndex && g.totals[c.playerIndex] >= g.victoryScore {
 		g.finalRoundTriggerIndex = c.playerIndex
-		g.currentPlayerIndex = (g.currentPlayerIndex + 1) % 2
+		g.currentPlayerIndex = (g.currentPlayerIndex + 1) % Cfg.NumPlayers
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
-			"type": "final_round",
-			"message": "Ronda final para el otro jugador",
+			jsonKeyType:  msgFinalRound,
+			jsonKeyMsg:   "Ronda final para el otro jugador",
 		})
 		c.hub.broadcastGameState(c.gameCode)
 		return
 	}
 
-	nextPlayer := (g.currentPlayerIndex + 1) % 2
+	nextPlayer := (g.currentPlayerIndex + 1) % Cfg.NumPlayers
 	g.currentPlayerIndex = nextPlayer
 	nextName := "Jugador " + strconv.Itoa(nextPlayer+1)
 	if nextPlayer < len(g.playerNames) && g.playerNames[nextPlayer] != "" {
@@ -708,9 +756,9 @@ func (c *Client) handleBank() {
 		g.finishedAt = time.Now()
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
-			"type":    "game_over",
-			"winner":  winner,
-			"message": "Partida terminada",
+			jsonKeyType:  msgGameOver,
+			jsonKeyWinner: winner,
+			jsonKeyMsg:   "Partida terminada",
 		})
 		c.hub.broadcastGameState(c.gameCode)
 		return
@@ -718,8 +766,8 @@ func (c *Client) handleBank() {
 
 	g.mu.Unlock()
 	c.hub.broadcastToGame(c.gameCode, map[string]any{
-		"type":    "turn_changed",
-		"message": "Turno de " + nextName,
+		jsonKeyType: msgTurnChanged,
+		jsonKeyMsg:  "Turno de " + nextName,
 	})
 	c.hub.broadcastGameState(c.gameCode)
 }

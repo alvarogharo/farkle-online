@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -23,7 +24,7 @@ func handleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	client := &Client{
 		hub:  hub,
 		conn: conn,
-		send: make(chan []byte, 256),
+		send: make(chan []byte, Cfg.SendBufferSize),
 	}
 	client.hub.register <- client
 
@@ -36,9 +37,10 @@ func main() {
 	go hub.run()
 	go hub.cleanupFinishedGames()
 
+	addr := ":" + Cfg.Port
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWebSocket(hub, w, r)
 	})
-	log.Println("Servidor WebSocket escuchando en ws://localhost:8080/ws")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("Servidor WebSocket escuchando en", fmt.Sprintf("ws://localhost%s/ws", addr))
+	log.Fatal(http.ListenAndServe(addr, nil))
 }

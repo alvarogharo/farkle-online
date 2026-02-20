@@ -2,11 +2,40 @@ package main
 
 import "fmt"
 
+// Constantes de puntuación Farkle
+const (
+	pointsSingle1  = 100
+	pointsSingle5  = 50
+	pointsTriple1  = 1000
+	pointsTriple2  = 200
+	pointsTriple3  = 300
+	pointsTriple4  = 400
+	pointsTriple5  = 500
+	pointsTriple6  = 600
+	pointsFour     = 1000
+	pointsFive     = 2000
+	pointsSix      = 3000
+	pointsStraight = 1500
+	pointsThreePair = 1500
+	pointsFourPair = 1500
+	pointsTwoTriple = 2500
+)
+
+const (
+	diceMin = 1
+	diceMax = 6
+)
+
+// emptyCounts devuelve un mapa de conteos vacío para valores 1-6.
+func emptyCounts() map[int]int {
+	return map[int]int{1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+}
+
 // makeCounts cuenta cuántos dados de cada valor (1-6) hay.
 func makeCounts(values []int) map[int]int {
-	counts := map[int]int{1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+	counts := emptyCounts()
 	for _, v := range values {
-		if v >= 1 && v <= 6 {
+		if v >= diceMin && v <= diceMax {
 			counts[v]++
 		}
 	}
@@ -23,7 +52,7 @@ func cloneCounts(counts map[int]int) map[int]int {
 
 func subtractCounts(counts, use map[int]int) map[int]int {
 	next := cloneCounts(counts)
-	for v := 1; v <= 6; v++ {
+	for v := diceMin; v <= diceMax; v++ {
 		next[v] -= use[v]
 		if next[v] < 0 {
 			next[v] = 0
@@ -33,7 +62,7 @@ func subtractCounts(counts, use map[int]int) map[int]int {
 }
 
 func allZero(counts map[int]int) bool {
-	for v := 1; v <= 6; v++ {
+	for v := diceMin; v <= diceMax; v++ {
 		if counts[v] != 0 {
 			return false
 		}
@@ -49,19 +78,19 @@ type combo struct {
 func possibleCombos(counts map[int]int) []combo {
 	var combos []combo
 	total := 0
-	for v := 1; v <= 6; v++ {
+	for v := diceMin; v <= diceMax; v++ {
 		total += counts[v]
 	}
 
 	// Escalera 1-6
 	if counts[1] >= 1 && counts[2] >= 1 && counts[3] >= 1 && counts[4] >= 1 && counts[5] >= 1 && counts[6] >= 1 {
-		combos = append(combos, combo{map[int]int{1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1}, 1500})
+		combos = append(combos, combo{map[int]int{1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1}, pointsStraight})
 	}
 
-	if total == 6 {
+	if total == Cfg.NumDice {
 		pairCount := 0
 		other := false
-		for v := 1; v <= 6; v++ {
+		for v := diceMin; v <= diceMax; v++ {
 			if counts[v] == 2 {
 				pairCount++
 			} else if counts[v] != 0 {
@@ -69,25 +98,25 @@ func possibleCombos(counts map[int]int) []combo {
 			}
 		}
 		if pairCount == 3 && !other {
-			combos = append(combos, combo{cloneCounts(counts), 1500})
+			combos = append(combos, combo{cloneCounts(counts), pointsThreePair})
 		}
 
-		for v := 1; v <= 6; v++ {
+		for v := diceMin; v <= diceMax; v++ {
 			if counts[v] == 4 {
-				for w := 1; w <= 6; w++ {
+				for w := diceMin; w <= diceMax; w++ {
 					if w != v && counts[w] == 2 {
-						combos = append(combos, combo{cloneCounts(counts), 1500})
+						combos = append(combos, combo{cloneCounts(counts), pointsFourPair})
 						break
 					}
 				}
 			}
 		}
 
-		for v := 1; v <= 6; v++ {
+		for v := diceMin; v <= diceMax; v++ {
 			if counts[v] == 3 {
-				for w := v + 1; w <= 6; w++ {
+				for w := v + 1; w <= diceMax; w++ {
 					if counts[w] == 3 {
-						combos = append(combos, combo{cloneCounts(counts), 2500})
+						combos = append(combos, combo{cloneCounts(counts), pointsTwoTriple})
 						break
 					}
 				}
@@ -95,35 +124,39 @@ func possibleCombos(counts map[int]int) []combo {
 		}
 	}
 
-	tripleScores := map[int]int{1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
-	for v := 1; v <= 6; v++ {
+	tripleScores := map[int]int{1: pointsTriple1, 2: pointsTriple2, 3: pointsTriple3, 4: pointsTriple4, 5: pointsTriple5, 6: pointsTriple6}
+	for v := diceMin; v <= diceMax; v++ {
 		if counts[v] >= 3 {
-			use := map[int]int{1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+			use := emptyCounts()
 			use[v] = 3
 			combos = append(combos, combo{use, tripleScores[v]})
 		}
 		if counts[v] >= 4 {
-			use := map[int]int{1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+			use := emptyCounts()
 			use[v] = 4
-			combos = append(combos, combo{use, 1000})
+			combos = append(combos, combo{use, pointsFour})
 		}
 		if counts[v] >= 5 {
-			use := map[int]int{1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+			use := emptyCounts()
 			use[v] = 5
-			combos = append(combos, combo{use, 2000})
+			combos = append(combos, combo{use, pointsFive})
 		}
 		if counts[v] >= 6 {
-			use := map[int]int{1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+			use := emptyCounts()
 			use[v] = 6
-			combos = append(combos, combo{use, 3000})
+			combos = append(combos, combo{use, pointsSix})
 		}
 	}
 
 	if counts[1] >= 1 {
-		combos = append(combos, combo{map[int]int{1: 1, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}, 100})
+		use := emptyCounts()
+		use[1] = 1
+		combos = append(combos, combo{use, pointsSingle1})
 	}
 	if counts[5] >= 1 {
-		combos = append(combos, combo{map[int]int{1: 0, 2: 0, 3: 0, 4: 0, 5: 1, 6: 0}, 50})
+		use := emptyCounts()
+		use[5] = 1
+		combos = append(combos, combo{use, pointsSingle5})
 	}
 
 	return combos
@@ -156,7 +189,7 @@ func bestScoreUsingAll(counts map[int]int, memo map[string]scoreResult) (valid b
 
 	for _, combo := range combos {
 		ok := true
-		for v := 1; v <= 6; v++ {
+		for v := diceMin; v <= diceMax; v++ {
 			if combo.use[v] > counts[v] {
 				ok = false
 				break
@@ -201,23 +234,23 @@ func HasAnyScoringOption(values []int) bool {
 	if counts[1] > 0 || counts[5] > 0 {
 		return true
 	}
-	for v := 1; v <= 6; v++ {
+	for v := diceMin; v <= diceMax; v++ {
 		if counts[v] >= 3 {
 			return true
 		}
 	}
 	total := 0
-	for v := 1; v <= 6; v++ {
+	for v := diceMin; v <= diceMax; v++ {
 		total += counts[v]
 	}
-	if total != 6 {
+	if total != Cfg.NumDice {
 		return false
 	}
 	if counts[1] == 1 && counts[2] == 1 && counts[3] == 1 && counts[4] == 1 && counts[5] == 1 && counts[6] == 1 {
 		return true
 	}
 	pairCount := 0
-	for v := 1; v <= 6; v++ {
+	for v := diceMin; v <= diceMax; v++ {
 		if counts[v] == 2 {
 			pairCount++
 		}
@@ -225,18 +258,18 @@ func HasAnyScoringOption(values []int) bool {
 	if pairCount == 3 {
 		return true
 	}
-	for v := 1; v <= 6; v++ {
+	for v := diceMin; v <= diceMax; v++ {
 		if counts[v] == 4 {
-			for w := 1; w <= 6; w++ {
+			for w := diceMin; w <= diceMax; w++ {
 				if w != v && counts[w] == 2 {
 					return true
 				}
 			}
 		}
 	}
-	for v := 1; v <= 6; v++ {
+	for v := diceMin; v <= diceMax; v++ {
 		if counts[v] == 3 {
-			for w := v + 1; w <= 6; w++ {
+			for w := v + 1; w <= diceMax; w++ {
 				if counts[w] == 3 {
 					return true
 				}
