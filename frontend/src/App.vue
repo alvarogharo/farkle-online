@@ -184,6 +184,7 @@ onMounted(() => {
         : (winnerName ? `${winnerName} gana la partida` : 'Partida terminada');
       statusMessage.value = gameOverMsg;
     } else if (data.type === 'player_disconnected') {
+      finishedByDisconnect.value = true;
       statusKind.value = 'success';
       statusMessage.value = data.message || 'El otro jugador se ha desconectado. Ganas la partida.';
     }
@@ -207,6 +208,7 @@ function goToLobby() {
   inGame.value = false;
   gameCode.value = '';
   myPlayerIndex.value = -1;
+  finishedByDisconnect.value = false;
   resetGame();
   if (window.location.search) {
     const url = new URL(window.location.href);
@@ -223,6 +225,7 @@ const currentPlayerIndex = ref(0);
 const victoryScore = ref(2000);
 const winnerIndex = ref(null);
 const finalRoundTriggerIndex = ref(null);
+const finishedByDisconnect = ref(false);
 
 // Dados visibles en mesa durante la tirada actual:
 // - held=true: ya apartado (no se vuelve a tirar)
@@ -366,6 +369,7 @@ const resetGame = () => {
   hasApartadoThisRoll.value = false;
   hasRolledThisTurn.value = false;
   finalRoundTriggerIndex.value = null;
+  finishedByDisconnect.value = false;
   isTurnEnding.value = false;
   statusMessage.value = '';
   statusKind.value = 'info';
@@ -403,9 +407,29 @@ onBeforeUnmount(() => {
     <div v-if="appState === 'finished'" class="game-over-overlay">
       <div class="game-over-card">
         <h2 class="game-over-title">Partida terminada</h2>
-        <p class="game-over-winner">
-          {{ players[winnerIndex].name }} gana con {{ players[winnerIndex].total }} puntos
-        </p>
+        <template v-if="finishedByDisconnect">
+          <p class="game-over-result game-over-result--disconnect">
+            El otro jugador se ha desconectado. Ganas la partida por abandono.
+          </p>
+        </template>
+        <template v-else>
+          <p
+            class="game-over-result"
+            :class="{ 'game-over-result--win': myPlayerIndex === winnerIndex, 'game-over-result--lose': myPlayerIndex !== winnerIndex }"
+          >
+            {{ myPlayerIndex === winnerIndex ? '¡Has ganado!' : 'Has perdido' }}
+          </p>
+        </template>
+        <div class="game-over-scores">
+          <p
+            v-for="(p, idx) in players"
+            :key="p.name"
+            class="game-over-score"
+            :class="{ 'game-over-score--winner': idx === winnerIndex }"
+          >
+            {{ p.name }}: {{ p.total }} puntos
+          </p>
+        </div>
         <button
           type="button"
           class="btn btn--primary"
@@ -417,6 +441,13 @@ onBeforeUnmount(() => {
     </div>
     
     <section class="scoreboard">
+      <div
+        v-if="finalRoundTriggerIndex !== null && winnerIndex === null"
+        class="final-round-banner"
+      >
+        <span class="final-round-banner__icon">🏁</span>
+        ¡Ronda final! {{ finalRoundTriggerIndex === myPlayerIndex ? 'Has alcanzado la meta. El otro jugador tiene un último turno.' : `Último turno de ${players[1 - finalRoundTriggerIndex]?.name}.` }}
+      </div>
       <div
         v-for="(p, idx) in players"
         :key="p.name"
@@ -431,17 +462,6 @@ onBeforeUnmount(() => {
         </div>
         <div class="player-total">
           Total: {{ p.total }}
-        </div>
-        <div class="player-rounds">
-          Rondas:
-          <span v-if="!p.rounds.length" class="muted">—</span>
-          <span
-            v-for="r in p.rounds"
-            :key="r.id"
-            class="round-chip"
-          >
-            +{{ r.points }}
-          </span>
         </div>
       </div>
     </section>
@@ -631,9 +651,38 @@ h1 {
   color: #f9fafb;
 }
 
-.game-over-winner {
+.game-over-result {
+  margin: 0 0 1rem;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.game-over-result--win {
+  color: #22c55e;
+}
+
+.game-over-result--lose {
+  color: #f87171;
+}
+
+.game-over-result--disconnect {
+  color: #94a3b8;
+}
+
+.game-over-scores {
   margin: 0 0 1.5rem;
-  font-size: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 1rem;
+  color: #cbd5e1;
+}
+
+.game-over-score {
+  margin: 0;
+}
+
+.game-over-score--winner {
   color: #22c55e;
   font-weight: 600;
 }
@@ -725,25 +774,23 @@ h1 {
   color: #e5e7eb;
 }
 
-.player-rounds {
-  font-size: 0.9rem;
-  color: #cbd5e1;
+.final-round-banner {
+  grid-column: 1 / -1;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
   align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(202, 138, 4, 0.25));
+  border: 1px solid rgba(234, 179, 8, 0.5);
+  border-radius: 0.5rem;
+  font-weight: 600;
+  color: #fde047;
+  font-size: 0.95rem;
 }
 
-.round-chip {
-  font-size: 0.8rem;
-  padding: 0.12rem 0.4rem;
-  border-radius: 999px;
-  background: rgba(31, 41, 55, 0.85);
-  border: 1px solid rgba(75, 85, 99, 0.7);
-}
-
-.muted {
-  color: #9ca3af;
+.final-round-banner__icon {
+  font-size: 1.2rem;
 }
 
 .help-section {
