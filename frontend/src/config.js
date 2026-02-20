@@ -21,8 +21,8 @@ export const DEFAULT_DICE_COUNT = 6;
 // ─── Jugadores ──────────────────────────────────────────────────────────────
 export const NUM_PLAYERS = 2;
 export const INITIAL_PLAYERS = [
-  { name: 'Jugador 1', total: 0 },
-  { name: 'Jugador 2', total: 0 },
+  { name: 'Player 1', total: 0 },
+  { name: 'Player 2', total: 0 },
 ];
 
 // ─── Puntuación (lobby y validación) ───────────────────────────────────────

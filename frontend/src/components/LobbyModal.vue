@@ -164,12 +164,12 @@ onUnmounted(() => {
   <div class="lobby-overlay" role="dialog" aria-modal="true" aria-labelledby="lobby-title">
     <div class="lobby-modal">
       <h1 id="lobby-title" class="lobby-title">Farkle</h1>
-      <p class="lobby-subtitle">Crea una partida o únete a una existente</p>
+      <p class="lobby-subtitle">{{ lobbyMsg.subtitle }}</p>
 
       <div class="connection-status" :class="{ 'connection-status--ok': connected, 'connection-status--error': lastError }">
-        <span v-if="connected">Conectado</span>
-        <span v-else-if="lastError">Error de conexión</span>
-        <span v-else>Conectando…</span>
+        <span v-if="connected">{{ lobbyMsg.connected }}</span>
+        <span v-else-if="lastError">{{ lobbyMsg.connectionError }}</span>
+        <span v-else>{{ lobbyMsg.connecting }}</span>
       </div>
 
       <div v-if="serverError" class="lobby-error">
@@ -211,7 +211,7 @@ onUnmounted(() => {
           :class="{ 'tab-btn--active': tab === 'create' }"
           @click="tab = 'create'; clearErrors()"
         >
-          Crear partida
+          {{ lobbyMsg.createGame }}
         </button>
         <button
           type="button"
@@ -219,13 +219,13 @@ onUnmounted(() => {
           :class="{ 'tab-btn--active': tab === 'join' }"
           @click="tab = 'join'; clearErrors()"
         >
-          Unirse a partida
+          {{ lobbyMsg.joinGame }}
         </button>
       </div>
 
       <form v-if="tab === 'create'" class="lobby-form" @submit.prevent="doCreate">
         <label class="lobby-label">
-          Nombre
+          {{ lobbyMsg.name }}
           <input
             v-model="createName"
             type="text"
@@ -235,7 +235,7 @@ onUnmounted(() => {
           >
         </label>
         <label class="lobby-label">
-          Puntuación para ganar
+          {{ lobbyMsg.scoreToWin }}
           <input
             v-model.number="createVictoryScore"
             type="number"
@@ -250,7 +250,7 @@ onUnmounted(() => {
           class="btn btn--primary"
           :disabled="!connected || createLoading"
         >
-          {{ createLoading ? 'Creando…' : 'Crear partida' }}
+          {{ createLoading ? lobbyMsg.creating : lobbyMsg.createGame }}
         </button>
       </form>
 
@@ -259,7 +259,7 @@ onUnmounted(() => {
           {{ lobbyMsg.joinLinkIntro }}
         </p>
         <label class="lobby-label">
-          Nombre
+          {{ lobbyMsg.name }}
           <input
             v-model="joinName"
             type="text"
@@ -269,7 +269,7 @@ onUnmounted(() => {
           >
         </label>
         <label v-if="!joinViaLink" class="lobby-label">
-          Código de partida
+          {{ lobbyMsg.gameCode }}
           <input
             v-model="joinCode"
             type="text"
@@ -285,7 +285,7 @@ onUnmounted(() => {
           class="btn btn--primary"
           :disabled="!connected || joinLoading || (!joinViaLink && !joinCode.trim())"
         >
-          {{ joinLoading ? 'Uniéndose…' : 'Unirse' }}
+          {{ joinLoading ? lobbyMsg.joining : lobbyMsg.join }}
         </button>
       </form>
       </template>

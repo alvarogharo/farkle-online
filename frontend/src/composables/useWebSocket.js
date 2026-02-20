@@ -44,7 +44,7 @@ export function useWebSocket(options = {}) {
     }
 
     ws.onerror = () => {
-      lastError.value = 'Error de conexión'
+      lastError.value = 'Connection error'
     }
 
     ws.onclose = (event) => {

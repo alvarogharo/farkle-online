@@ -330,7 +330,7 @@ onBeforeUnmount(() => {
             class="game-over-score"
             :class="{ 'game-over-score--winner': idx === winnerIndex }"
           >
-            {{ p.name }}: {{ p.total }} puntos
+            {{ p.name }}: {{ p.total }} {{ msg.pointsLabel }}
           </p>
         </div>
         <button
@@ -349,7 +349,7 @@ onBeforeUnmount(() => {
         class="final-round-banner"
       >
         <span class="final-round-banner__icon">🏁</span>
-        ¡Ronda final! {{ finalRoundTriggerIndex === myPlayerIndex ? msg.finalRoundBannerTriggered : msg.finalRoundBannerOther(players[1 - finalRoundTriggerIndex]?.name || msg.playerDefault) }}
+        {{ msg.finalRoundBannerPrefix }}{{ finalRoundTriggerIndex === myPlayerIndex ? msg.finalRoundBannerTriggered : msg.finalRoundBannerOther(players[1 - finalRoundTriggerIndex]?.name || msg.playerDefault) }}
       </div>
       <div
         v-for="(p, idx) in players"
@@ -364,39 +364,39 @@ onBeforeUnmount(() => {
           {{ p.name }}
         </div>
         <div class="player-total">
-          Total: {{ p.total }}
+          {{ msg.totalLabel }}: {{ p.total }}
         </div>
       </div>
     </section>
 
     <section class="help-section">
-      <h2>Combinaciones y puntos</h2>
+      <h2>{{ msg.helpTitle }}</h2>
       <div class="help-table">
         <div class="help-col">
-          <div class="help-row">5 = 50 pts</div>
-          <div class="help-row">1 = 100 pts</div>
-          <div class="help-row">Tres 2 = 200 pts</div>
-          <div class="help-row">Tres 3 = 300 pts</div>
-          <div class="help-row">Tres 4 = 400 pts</div>
-          <div class="help-row">Tres 5 = 500 pts</div>
-          <div class="help-row">Tres 6 = 600 pts</div>
-          <div class="help-row">Tres 1 = 1000 pts</div>
+          <div class="help-row">{{ msg.score5 }}</div>
+          <div class="help-row">{{ msg.score1 }}</div>
+          <div class="help-row">{{ msg.scoreThree2 }}</div>
+          <div class="help-row">{{ msg.scoreThree3 }}</div>
+          <div class="help-row">{{ msg.scoreThree4 }}</div>
+          <div class="help-row">{{ msg.scoreThree5 }}</div>
+          <div class="help-row">{{ msg.scoreThree6 }}</div>
+          <div class="help-row">{{ msg.scoreThree1 }}</div>
         </div>
         <div class="help-col">
-          <div class="help-row">Cuatro iguales de cualquier número = 1000 pts</div>
-          <div class="help-row">Escalera 1–6 = 1500 pts</div>
-          <div class="help-row">Tres parejas = 1500 pts</div>
-          <div class="help-row">Cuatro iguales y una pareja = 1500 pts</div>
-          <div class="help-row">Cinco iguales de cualquier número = 2000 pts</div>
-          <div class="help-row">Dos tríos = 2500 pts</div>
-          <div class="help-row">Seis iguales de cualquier número = 3000 pts</div>
+          <div class="help-row">{{ msg.scoreFourOfKind }}</div>
+          <div class="help-row">{{ msg.scoreStraight }}</div>
+          <div class="help-row">{{ msg.scoreThreePairs }}</div>
+          <div class="help-row">{{ msg.scoreFourAndPair }}</div>
+          <div class="help-row">{{ msg.scoreFiveOfKind }}</div>
+          <div class="help-row">{{ msg.scoreTwoTriples }}</div>
+          <div class="help-row">{{ msg.scoreSixOfKind }}</div>
         </div>
       </div>
     </section>
 
     <section class="controls">
       <h2>
-        {{ isMyTurn ? msg.yourTurn : msg.turnOf(players[currentPlayerIndex]?.name || msg.playerDefault) }} · Puntos del turno: {{ turnPoints }}
+        {{ isMyTurn ? msg.yourTurn : msg.turnOf(players[currentPlayerIndex]?.name || msg.playerDefault) }} · {{ msg.turnPointsLabel }}: {{ turnPoints }}
       </h2>
 
       <div

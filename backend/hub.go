@@ -44,22 +44,22 @@ const (
 
 // Mensajes de error
 const (
-	errNoGame            = "no estás en ninguna partida"
-	errGameNotFound      = "partida no encontrada"
-	errNotYourTurn       = "no es tu turno"
-	errGameFinished      = "la partida ha terminado"
-	errGameFull          = "partida llena"
-	errGameCodeRequired  = "gameCode requerido"
-	errInvalidJSON       = "JSON inválido"
-	errInvalidIndex      = "índice inválido"
-	errRollWithoutApartar = "debes apartar al menos un dado que puntúe antes de volver a tirar"
-	errSelectHeldDie     = "no puedes seleccionar un dado ya apartado"
-	errRollFirst         = "primero debes tirar los dados"
-	errSelectBeforeApart = "debes seleccionar dados antes de apartar"
-	errSelectNotHeld     = "selecciona dados que no estén ya apartados"
-	errInvalidSelection  = "selección inválida: todos los dados deben puntuar"
-	errBankNoPoints      = "no tienes puntos que plantarte"
-	errBankMustApartar   = "debes apartar al menos una combinación antes de plantarte"
+	errNoGame             = "You are not in any game"
+	errGameNotFound       = "Game not found"
+	errNotYourTurn        = "Not your turn"
+	errGameFinished       = "The game has ended"
+	errGameFull           = "Game is full"
+	errGameCodeRequired   = "Game code required"
+	errInvalidJSON        = "Invalid JSON"
+	errInvalidIndex       = "Invalid index"
+	errRollWithoutApartar = "You must set aside at least one scoring die before rolling again"
+	errSelectHeldDie      = "You cannot select a die that is already set aside"
+	errRollFirst          = "You must roll the dice first"
+	errSelectBeforeApart  = "You must select dice before setting aside"
+	errSelectNotHeld      = "Select dice that are not already set aside"
+	errInvalidSelection   = "Invalid selection: all dice must score"
+	errBankNoPoints       = "You have no points to bank"
+	errBankMustApartar    = "You must set aside at least one combination before banking"
 )
 
 const (
