@@ -41,6 +41,12 @@ type Die struct {
 	Held  bool `json:"held"`
 }
 
+type TurnMove struct {
+	ID     int   `json:"id"`
+	Values []int `json:"values"`
+	Points int   `json:"points"`
+}
+
 const (
 	defaultVictoryScore   = 2000
 	finishedGameRetention = 5 * time.Minute
@@ -56,6 +62,7 @@ type Game struct {
 	dice                  []Die
 	selectedIndices       []int
 	turnPoints            int
+	turnMoves             []TurnMove
 	hasApartadoThisRoll   bool
 	victoryScore          int
 	finalRoundTriggerIndex int       // -1 si no ha pasado
@@ -353,14 +360,19 @@ func (h *Hub) broadcastGameState(gameCode string) {
 	if g.winnerIndex >= 0 {
 		status = "finished"
 	}
+	turnMoves := g.turnMoves
+	if turnMoves == nil {
+		turnMoves = []TurnMove{}
+	}
 	state := map[string]any{
 		"type":                   "game_state",
 		"players":                players,
 		"currentPlayerIndex":     g.currentPlayerIndex,
 		"dice":                   g.dice,
-		"selectedIndices":       g.selectedIndices,
+		"selectedIndices":        g.selectedIndices,
 		"remainingDiceCount":     remainingCount,
 		"turnPoints":             g.turnPoints,
+		"turnMoves":              turnMoves,
 		"victoryScore":           g.victoryScore,
 		"finalRoundTriggerIndex": g.finalRoundTriggerIndex,
 		"winnerIndex":            g.winnerIndex,
@@ -433,10 +445,11 @@ func (c *Client) handleRoll() {
 	if !HasAnyScoringOption(activeValues) {
 		g.mu.Lock()
 		finishedIndex := g.currentPlayerIndex
-		g.turnPoints = 0
-		g.dice = nil
-		g.selectedIndices = nil
-		g.currentPlayerIndex = (g.currentPlayerIndex + 1) % 2
+			g.turnPoints = 0
+			g.turnMoves = nil
+			g.dice = nil
+			g.selectedIndices = nil
+			g.currentPlayerIndex = (g.currentPlayerIndex + 1) % 2
 
 		// Si la ronda final estaba activa y el otro jugador acaba de Farklear
 		if g.finalRoundTriggerIndex >= 0 && finishedIndex != g.finalRoundTriggerIndex {
@@ -449,6 +462,7 @@ func (c *Client) handleRoll() {
 			}
 			g.winnerIndex = winner
 			g.finishedAt = time.Now()
+			g.turnMoves = nil
 			g.mu.Unlock()
 			c.hub.broadcastToGame(c.gameCode, map[string]any{"type": "farkle", "message": "Farkle: pierdes los puntos del turno"})
 			c.hub.broadcastToGame(c.gameCode, map[string]any{"type": "game_over", "winner": winner, "message": "Partida terminada"})
@@ -573,6 +587,11 @@ func (c *Client) handleApartar() {
 
 	g.turnPoints += points
 	g.hasApartadoThisRoll = true
+	g.turnMoves = append(g.turnMoves, TurnMove{
+		ID:     len(g.turnMoves) + 1,
+		Values: pickedValues,
+		Points: points,
+	})
 
 	// Marcar los dados seleccionados como held (apartados)
 	for _, idx := range g.selectedIndices {
@@ -644,6 +663,7 @@ func (c *Client) handleBank() {
 	finishedIndex := c.playerIndex
 	g.totals[c.playerIndex] += g.turnPoints
 	g.turnPoints = 0
+	g.turnMoves = nil
 	g.dice = nil
 	g.selectedIndices = nil
 	g.hasApartadoThisRoll = false
