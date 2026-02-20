@@ -208,6 +208,11 @@ function goToLobby() {
   gameCode.value = '';
   myPlayerIndex.value = -1;
   resetGame();
+  if (window.location.search) {
+    const url = new URL(window.location.href);
+    url.search = '';
+    window.history.replaceState({}, '', url.pathname + url.hash);
+  }
 }
 
 const players = ref([

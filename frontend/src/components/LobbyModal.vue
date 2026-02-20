@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 const props = defineProps({
   /** Función para enviar mensajes por WebSocket */
@@ -17,6 +17,7 @@ const emit = defineEmits(['success']);
 const tab = ref('create'); // 'create' | 'join'
 const waitingForPlayer = ref(false);
 const pendingGameCode = ref('');
+const joinViaLink = ref(false); // true cuando llegas con ?code=XXX
 
 // Crear partida
 const createName = ref('');
@@ -91,8 +92,36 @@ function doJoin() {
   props.send({ type: 'join', gameCode: code, playerName: name });
 }
 
+const shareUrl = computed(() => {
+  if (!pendingGameCode.value) return '';
+  const base = typeof window !== 'undefined'
+    ? `${window.location.origin}${window.location.pathname}`
+    : '';
+  return `${base}?code=${encodeURIComponent(pendingGameCode.value)}`;
+});
+
+async function copyLink() {
+  if (!shareUrl.value) return;
+  try {
+    await navigator.clipboard.writeText(shareUrl.value);
+    linkCopyFeedback.value = true;
+    setTimeout(() => { linkCopyFeedback.value = false; }, 1500);
+  } catch {
+    copyCode(); // fallback: copiar solo el código
+  }
+}
+
+const linkCopyFeedback = ref(false);
+
 onMounted(() => {
   unsubscribe = props.onMessage(handleMessage);
+  const params = new URLSearchParams(window.location.search);
+  const codeFromUrl = params.get('code')?.trim().toUpperCase();
+  if (codeFromUrl) {
+    tab.value = 'join';
+    joinCode.value = codeFromUrl;
+    joinViaLink.value = true;
+  }
 });
 
 async function copyCode() {
@@ -138,18 +167,28 @@ onUnmounted(() => {
 
       <!-- Pantalla de espera tras crear partida -->
       <div v-if="waitingForPlayer" class="waiting-section">
-        <p class="waiting-text">Comparte este código para que alguien se una a la partida:</p>
+        <p class="waiting-text">Comparte este código o enlace para que alguien se una a la partida:</p>
         <div class="code-display" :class="{ 'code-display--copied': copyFeedback }">
           {{ pendingGameCode }}
         </div>
-        <button
-          type="button"
-          class="btn btn--copy"
-          :class="{ 'btn--copied': copyFeedback }"
-          @click="copyCode"
-        >
-          {{ copyFeedback ? '¡Copiado!' : 'Copiar código' }}
-        </button>
+        <div class="waiting-buttons">
+          <button
+            type="button"
+            class="btn btn--copy"
+            :class="{ 'btn--copied': copyFeedback }"
+            @click="copyCode"
+          >
+            {{ copyFeedback ? '¡Copiado!' : 'Copiar código' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn--copy"
+            :class="{ 'btn--copied': linkCopyFeedback }"
+            @click="copyLink"
+          >
+            {{ linkCopyFeedback ? '¡Enlace copiado!' : 'Copiar enlace' }}
+          </button>
+        </div>
         <p class="waiting-hint">Esperando que alguien se una…</p>
       </div>
 
@@ -205,17 +244,20 @@ onUnmounted(() => {
       </form>
 
       <form v-else class="lobby-form" @submit.prevent="doJoin">
+        <p v-if="joinViaLink" class="join-link-intro">
+          Has llegado mediante un enlace. Introduce tu nombre para unirte a la partida.
+        </p>
         <label class="lobby-label">
           Nombre
           <input
             v-model="joinName"
             type="text"
             class="lobby-input"
-            placeholder="Jugador 2"
+            :placeholder="joinViaLink ? 'Tu nombre' : 'Jugador 2'"
             :disabled="!connected"
           >
         </label>
-        <label class="lobby-label">
+        <label v-if="!joinViaLink" class="lobby-label">
           Código de partida
           <input
             v-model="joinCode"
@@ -230,7 +272,7 @@ onUnmounted(() => {
         <button
           type="submit"
           class="btn btn--primary"
-          :disabled="!connected || joinLoading"
+          :disabled="!connected || joinLoading || (!joinViaLink && !joinCode.trim())"
         >
           {{ joinLoading ? 'Uniéndose…' : 'Unirse' }}
         </button>
@@ -380,6 +422,23 @@ onUnmounted(() => {
 
 .btn--copy:hover:not(:disabled) {
   background: linear-gradient(135deg, #1e293b, #334155);
+}
+
+.waiting-buttons {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.join-link-intro {
+  margin: 0 0 0.5rem;
+  padding: 0.6rem 0.9rem;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 0.5rem;
+  color: #86efac;
+  font-size: 0.9rem;
 }
 
 .btn--copied {
