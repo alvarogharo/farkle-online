@@ -59,7 +59,17 @@ onMounted(() => {
   unsubscribeGameMessages = ws.onMessage((data) => {
     if (!inGame.value) return;
     if (data.type === 'game_state') {
-      applyGameState(data);
+      if (farklePendingTransition.value) {
+        pendingGameState.value = data;
+        farkleDelayTimeoutId = setTimeout(() => {
+          applyGameState(pendingGameState.value);
+          pendingGameState.value = null;
+          farklePendingTransition.value = false;
+          farkleDelayTimeoutId = null;
+        }, 3000);
+      } else {
+        applyGameState(data);
+      }
     } else if (data.type === 'roll_result') {
       if (rollPlaceholderIntervalId) {
         clearInterval(rollPlaceholderIntervalId);
@@ -86,19 +96,45 @@ onMounted(() => {
       statusKind.value = 'error';
       statusMessage.value = data.message || 'Error';
     } else if (data.type === 'farkle') {
-      statusKind.value = 'warn';
-      statusMessage.value = data.message || 'Farkle: pierdes los puntos del turno';
-      showToast(data.message || 'Farkle: pierdes los puntos del turno', 'warn');
+      if (rollAnimationTimeoutId) {
+        clearTimeout(rollAnimationTimeoutId);
+        rollAnimationTimeoutId = null;
+      }
+      isRolling.value = false;
+      statusMessage.value = '';
+      const farklePlayerName = players.value[currentPlayerIndex.value]?.name || 'El jugador';
+      const farkleMsg = myPlayerIndex.value === currentPlayerIndex.value
+        ? 'Farkle: pierdes los puntos del turno'
+        : `¡${farklePlayerName} pierde sus puntos por Farkle!`;
+      showToast(farkleMsg, 'warn');
+      farklePendingTransition.value = true;
     } else if (data.type === 'hot_dice') {
-      showToast(data.message || '¡Mano limpia! Puedes volver a tirar los 6 dados', 'success');
+      const hotDicePlayerName = players.value[currentPlayerIndex.value]?.name || 'El jugador';
+      const hotDiceMsg = myPlayerIndex.value === currentPlayerIndex.value
+        ? '¡Mano limpia! Puedes volver a tirar los 6 dados'
+        : `¡${hotDicePlayerName} ha conseguido mano limpia!`;
+      showToast(hotDiceMsg, 'success');
     } else if (data.type === 'turn_changed') {
-      showToast(data.message || 'Cambio de turno', 'info');
+      const nextIdx = 1 - currentPlayerIndex.value;
+      const turnMsg = myPlayerIndex.value === nextIdx
+        ? '¡Tu turno!'
+        : (data.message || 'Cambio de turno');
+      showToast(turnMsg, 'info');
     } else if (data.type === 'final_round') {
       statusKind.value = 'success';
-      statusMessage.value = data.message || 'Ronda final para el otro jugador';
+      const iTriggered = myPlayerIndex.value === currentPlayerIndex.value;
+      const finalMsg = iTriggered
+        ? 'Has alcanzado la meta. El otro jugador tiene un último turno.'
+        : '¡Ronda final! Este es tu último turno.';
+      statusMessage.value = finalMsg;
     } else if (data.type === 'game_over') {
       statusKind.value = 'success';
-      statusMessage.value = data.message || 'Partida terminada';
+      const winnerIdx = data.winner;
+      const winnerName = winnerIdx >= 0 && players.value[winnerIdx] ? players.value[winnerIdx].name : null;
+      const gameOverMsg = winnerName && myPlayerIndex.value === winnerIdx
+        ? '¡Ganas la partida!'
+        : (winnerName ? `${winnerName} gana la partida` : 'Partida terminada');
+      statusMessage.value = gameOverMsg;
     } else if (data.type === 'player_disconnected') {
       statusKind.value = 'success';
       statusMessage.value = data.message || 'El otro jugador se ha desconectado. Ganas la partida.';
@@ -165,6 +201,9 @@ function showToast(message, kind = 'info') {
 let rollAnimationTimeoutId = null;
 let rollPlaceholderIntervalId = null;
 let rollStartTime = null;
+const farklePendingTransition = ref(false);
+const pendingGameState = ref(null);
+let farkleDelayTimeoutId = null;
 const clearRollingTimers = () => {
   if (rollAnimationTimeoutId) {
     clearTimeout(rollAnimationTimeoutId);
@@ -173,6 +212,10 @@ const clearRollingTimers = () => {
   if (rollPlaceholderIntervalId) {
     clearInterval(rollPlaceholderIntervalId);
     rollPlaceholderIntervalId = null;
+  }
+  if (farkleDelayTimeoutId) {
+    clearTimeout(farkleDelayTimeoutId);
+    farkleDelayTimeoutId = null;
   }
 };
 
@@ -267,6 +310,7 @@ const resetGame = () => {
 onBeforeUnmount(() => {
   clearRollingTimers();
   if (toastTimeoutId) clearTimeout(toastTimeoutId);
+  if (farkleDelayTimeoutId) clearTimeout(farkleDelayTimeoutId);
   unsubscribeGameMessages();
 });
 </script>
@@ -365,7 +409,7 @@ onBeforeUnmount(() => {
 
     <section class="controls">
       <h2>
-        Turno: {{ players[currentPlayerIndex].name }} · Puntos del turno: {{ turnPoints }}
+        {{ isMyTurn ? 'Tu turno' : `Turno de ${players[currentPlayerIndex]?.name}` }} · Puntos del turno: {{ turnPoints }}
       </h2>
 
       <div
@@ -386,7 +430,7 @@ onBeforeUnmount(() => {
             :value="die.value"
             :is-rolling="isRolling"
             :selected="selected[index] && !die.held"
-            :disabled="!isMyTurn || winnerIndex !== null || die.held || !hasRolledThisTurn"
+            :disabled="farklePendingTransition || !isMyTurn || winnerIndex !== null || die.held || !hasRolledThisTurn"
             :held="die.held"
             @toggle="toggleSelect(index)"
           />
@@ -395,7 +439,12 @@ onBeforeUnmount(() => {
           v-else
           class="dice-empty"
         >
-          Tienes {{ remainingDiceCount }} dados listos. Pulsa “Tirar dados”.
+          <template v-if="isMyTurn">
+            Tienes {{ remainingDiceCount }} dados listos. Pulsa “Tirar dados”.
+          </template>
+          <template v-else>
+            Es el turno de {{ players[currentPlayerIndex]?.name }}. Esperando su tirada…
+          </template>
         </div>
       </div>
     </section>
@@ -404,7 +453,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="btn"
-        :disabled="!isMyTurn || isRolling || winnerIndex !== null || (dices.length > 0 && !hasApartadoThisRoll)"
+        :disabled="farklePendingTransition || !isMyTurn || isRolling || winnerIndex !== null || (dices.length > 0 && !hasApartadoThisRoll)"
         @click="rollDices"
       >
         {{ isRolling ? 'Tirando...' : 'Tirar dados' }}
@@ -413,7 +462,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="btn btn--secondary"
-        :disabled="!isMyTurn || isRolling || !hasSelection || winnerIndex !== null || !hasRolledThisTurn"
+        :disabled="farklePendingTransition || !isMyTurn || isRolling || !hasSelection || winnerIndex !== null || !hasRolledThisTurn"
         @click="apartarSeleccionados"
       >
         Apartar
@@ -422,7 +471,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="btn btn--bank"
-        :disabled="!canBank || !isMyTurn"
+        :disabled="farklePendingTransition || !canBank || !isMyTurn"
         @click="bankTurn"
       >
         Plantarse
@@ -527,9 +576,9 @@ h1 {
 
 .toast {
   position: fixed;
-  bottom: 2rem;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   z-index: 400;
   padding: 1rem 2rem;
   border-radius: 0.75rem;
@@ -566,7 +615,7 @@ h1 {
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translateX(-50%) translateY(1rem);
+  transform: translate(-50%, -50%) scale(0.9);
 }
 
 .controls {
