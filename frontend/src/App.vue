@@ -3,13 +3,19 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import Die from '@/components/Die.vue';
 import LobbyModal from '@/components/LobbyModal.vue';
 import { useWebSocket } from '@/composables/useWebSocket.js';
+import {
+  ROLL_DISPLAY_MS,
+  ROLL_ANIMATION_INTERVAL_MS,
+  TOAST_DELAY_MS,
+  TOAST_DURATION_MS,
+  DICE_SIDES,
+  DEFAULT_DICE_COUNT,
+  MSG,
+  MSG_SEND,
+} from '@/config.js';
 
 const ws = useWebSocket();
 const inGame = ref(false);
-
-const ROLL_DISPLAY_MS = 1200;
-const TOAST_DELAY_MS = 200;
-const TOAST_DURATION_MS = 2000;
 const gameCode = ref('');
 const myPlayerIndex = ref(-1);
 
@@ -36,9 +42,9 @@ function applyGameState(data, options = {}) {
 
   let rem = data.remainingDiceCount;
   if (rem === undefined || rem === null) {
-    rem = diceArr.length === 0 ? 6 : diceArr.filter((d) => !d?.held).length;
+    rem = diceArr.length === 0 ? DEFAULT_DICE_COUNT : diceArr.filter((d) => !d?.held).length;
   } else if (diceArr.length === 0 && rem === 0) {
-    rem = 6; // Mano limpia: siguiente tirada con 6 dados
+    rem = DEFAULT_DICE_COUNT; // Mano limpia: siguiente tirada con 6 dados
   }
   remainingDiceCount.value = rem;
   turnPoints.value = data.turnPoints ?? 0;
@@ -76,7 +82,7 @@ onMounted(() => {
   ws.connect();
   unsubscribeGameMessages = ws.onMessage((data) => {
     if (!inGame.value) return;
-    if (data.type === 'game_state') {
+    if (data.type === MSG.GAME_STATE) {
       if (farklePendingTransition.value) {
         pendingGameState.value = data;
         const toastDisappearAt = rollResultTime
@@ -96,7 +102,7 @@ onMounted(() => {
           (!data.dice || data.dice.length === 0) && dices.value.length > 0 && isTurnChange;
         applyGameState(data, { preserveDice: isTurnOrFarkleTransition });
       }
-    } else if (data.type === 'roll_result') {
+    } else if (data.type === MSG.ROLL_RESULT) {
       if (rollPlaceholderIntervalId) {
         clearInterval(rollPlaceholderIntervalId);
         rollPlaceholderIntervalId = null;
@@ -110,14 +116,14 @@ onMounted(() => {
       isRolling.value = true;
       // Mostrar dados con valores aleatorios que cambian durante la animación (solo los no held)
       dices.value = realDice.map((d) =>
-        d.held ? d : { ...d, value: Math.floor(Math.random() * 6) + 1 },
+        d.held ? d : { ...d, value: Math.floor(Math.random() * DICE_SIDES) + 1 },
       );
       const rollDisplayInterval = () => {
         dices.value = dices.value.map((d) =>
-          d.held ? d : { ...d, value: Math.floor(Math.random() * 6) + 1 },
+          d.held ? d : { ...d, value: Math.floor(Math.random() * DICE_SIDES) + 1 },
         );
       };
-      rollPlaceholderIntervalId = setInterval(rollDisplayInterval, 80);
+      rollPlaceholderIntervalId = setInterval(rollDisplayInterval, ROLL_ANIMATION_INTERVAL_MS);
       rollAnimationTimeoutId = setTimeout(() => {
         clearInterval(rollPlaceholderIntervalId);
         rollPlaceholderIntervalId = null;
@@ -126,7 +132,7 @@ onMounted(() => {
         rollResultPending.value = false;
         rollAnimationTimeoutId = null;
       }, ROLL_DISPLAY_MS);
-    } else if (data.type === 'error') {
+    } else if (data.type === MSG.ERROR) {
       if (rollPlaceholderIntervalId) {
         clearInterval(rollPlaceholderIntervalId);
         rollPlaceholderIntervalId = null;
@@ -143,7 +149,7 @@ onMounted(() => {
       isRolling.value = false;
       statusKind.value = 'error';
       statusMessage.value = data.message || 'Error';
-    } else if (data.type === 'farkle') {
+    } else if (data.type === MSG.FARKLE) {
       const farklePlayerName = players.value[currentPlayerIndex.value]?.name || 'El jugador';
       const farkleMsg = myPlayerIndex.value === currentPlayerIndex.value
         ? 'Farkle: pierdes los puntos del turno'
@@ -156,26 +162,26 @@ onMounted(() => {
         showToast(farkleMsg, 'warn');
         farkleToastTimeoutId = null;
       }, waitForAnimation);
-    } else if (data.type === 'hot_dice') {
+    } else if (data.type === MSG.HOT_DICE) {
       const hotDicePlayerName = players.value[currentPlayerIndex.value]?.name || 'El jugador';
       const hotDiceMsg = myPlayerIndex.value === currentPlayerIndex.value
         ? '¡Mano limpia! Puedes volver a tirar los 6 dados'
         : `¡${hotDicePlayerName} ha conseguido mano limpia!`;
       showToast(hotDiceMsg, 'success');
-    } else if (data.type === 'turn_changed') {
+    } else if (data.type === MSG.TURN_CHANGED) {
       const nextIdx = 1 - currentPlayerIndex.value;
       const turnMsg = myPlayerIndex.value === nextIdx
         ? '¡Tu turno!'
         : (data.message || 'Cambio de turno');
       showToast(turnMsg, 'info');
-    } else if (data.type === 'final_round') {
+    } else if (data.type === MSG.FINAL_ROUND) {
       statusKind.value = 'success';
       const iTriggered = myPlayerIndex.value === currentPlayerIndex.value;
       const finalMsg = iTriggered
         ? 'Has alcanzado la meta. El otro jugador tiene un último turno.'
         : '¡Ronda final! Este es tu último turno.';
       statusMessage.value = finalMsg;
-    } else if (data.type === 'game_over') {
+    } else if (data.type === MSG.GAME_OVER) {
       statusKind.value = 'success';
       const winnerIdx = data.winner;
       const winnerName = winnerIdx >= 0 && players.value[winnerIdx] ? players.value[winnerIdx].name : null;
@@ -183,7 +189,7 @@ onMounted(() => {
         ? '¡Ganas la partida!'
         : (winnerName ? `${winnerName} gana la partida` : 'Partida terminada');
       statusMessage.value = gameOverMsg;
-    } else if (data.type === 'player_disconnected') {
+    } else if (data.type === MSG.PLAYER_DISCONNECTED) {
       finishedByDisconnect.value = true;
       statusKind.value = 'success';
       statusMessage.value = data.message || 'El otro jugador se ha desconectado. Ganas la partida.';
@@ -231,7 +237,7 @@ const finishedByDisconnect = ref(false);
 // - held=true: ya apartado (no se vuelve a tirar)
 // - held=false: dado activo (se vuelve a tirar al pulsar "Tirar")
 const dices = ref([]);
-const remainingDiceCount = ref(6);
+const remainingDiceCount = ref(DEFAULT_DICE_COUNT);
 const isRolling = ref(false);
 const selected = ref([]);
 const hasApartadoThisRoll = ref(false);
@@ -301,20 +307,20 @@ const rollDices = () => {
   if (dices.value.length === 0) {
     // Primera tirada: mostrar dados con valores que cambian (animación de lanzamiento)
     dices.value = Array.from({ length: count }, () => ({
-      value: Math.floor(Math.random() * 6) + 1,
+      value: Math.floor(Math.random() * DICE_SIDES) + 1,
       held: false,
     }));
     selected.value = dices.value.map(() => false);
     const rollPlaceholder = () => {
       dices.value = dices.value.map((d) => ({
         ...d,
-        value: Math.floor(Math.random() * 6) + 1,
+        value: Math.floor(Math.random() * DICE_SIDES) + 1,
       }));
     };
     rollPlaceholderIntervalId = setInterval(rollPlaceholder, 80);
   }
   // Si ya hay dados (re-tirada), solo se sacuden, no cambian de valor hasta roll_result
-  ws.send({ type: 'roll' });
+  ws.send({ type: MSG_SEND.ROLL });
 };
 
 const toggleSelect = (index) => {
@@ -327,7 +333,7 @@ const toggleSelect = (index) => {
     statusMessage.value = '';
     statusKind.value = 'info';
   }
-  ws.send({ type: 'toggle_select', index });
+  ws.send({ type: MSG_SEND.TOGGLE_SELECT, index });
 };
 
 const hasSelection = computed(() => selected.value.some((v) => v));
@@ -336,7 +342,7 @@ const apartarSeleccionados = () => {
   if (!hasSelection.value || !isMyTurn.value) return;
   if (isRolling.value || winnerIndex.value !== null) return;
   if (!hasRolledThisTurn.value || !dices.value.length) return;
-  ws.send({ type: 'apartar' });
+  ws.send({ type: MSG_SEND.APARTAR });
 };
 
 // Regla: no se puede "plantarse" con una tirada sin haber apartado al menos una vez
@@ -349,7 +355,7 @@ const canBank = computed(() =>
 
 const bankTurn = () => {
   if (!canBank.value || !isMyTurn.value) return;
-  ws.send({ type: 'bank' });
+  ws.send({ type: MSG_SEND.BANK });
 };
 
 const resetGame = () => {
@@ -363,7 +369,7 @@ const resetGame = () => {
   winnerIndex.value = null;
   turnPoints.value = 0;
   turnMoves.value = [];
-  remainingDiceCount.value = 6;
+  remainingDiceCount.value = DEFAULT_DICE_COUNT;
   dices.value = [];
   selected.value = [];
   hasApartadoThisRoll.value = false;

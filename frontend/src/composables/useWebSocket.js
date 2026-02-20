@@ -1,17 +1,16 @@
 import { ref, onUnmounted } from 'vue'
-
-const DEFAULT_URL = 'ws://172.20.6.189:8080/ws'
+import { WS_URL } from '@/config.js'
 
 /**
  * Composable para gestión de conexión WebSocket con el backend Farkle.
  * @param {Object} options
- * @param {string} options.url - URL del WebSocket (default: ws://localhost:8080/ws)
+ * @param {string} options.url - URL del WebSocket (default: desde config/ env VITE_WS_URL)
  * @param {boolean} options.autoReconnect - Si reintentar conexión al cerrarse (default: true)
  * @param {number} options.maxRetries - Intentos máximos de reconexión (default: 5)
  */
 export function useWebSocket(options = {}) {
   const {
-    url = DEFAULT_URL,
+    url = WS_URL,
     autoReconnect = true,
     maxRetries = 5,
   } = options

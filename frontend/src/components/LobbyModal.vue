@@ -1,5 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import {
+  DEFAULT_VICTORY_SCORE,
+  MIN_VICTORY_SCORE,
+  MAX_VICTORY_SCORE,
+  MSG_LOBBY,
+  MSG_SEND,
+} from '@/config.js';
 
 const props = defineProps({
   /** Función para enviar mensajes por WebSocket */
@@ -21,7 +28,7 @@ const joinViaLink = ref(false); // true cuando llegas con ?code=XXX
 
 // Crear partida
 const createName = ref('');
-const createVictoryScore = ref(2000);
+const createVictoryScore = ref(DEFAULT_VICTORY_SCORE);
 const createLoading = ref(false);
 
 // Unirse
@@ -37,25 +44,25 @@ function clearErrors() {
 }
 
 function handleMessage(data) {
-  if (data.type === 'error') {
+  if (data.type === MSG_LOBBY.ERROR) {
     serverError.value = data.message || 'Error del servidor';
     createLoading.value = false;
     joinLoading.value = false;
     return;
   }
-  if (data.type === 'game_created') {
+  if (data.type === MSG_LOBBY.GAME_CREATED) {
     createLoading.value = false;
     serverError.value = '';
     pendingGameCode.value = data.gameCode || '';
     waitingForPlayer.value = true;
     return;
   }
-  if (data.type === 'player_joined') {
+  if (data.type === MSG_LOBBY.PLAYER_JOINED) {
     // El creador recibe esto cuando alguien se une; cerramos el modal
     emit('success', { gameCode: pendingGameCode.value, playerIndex: 0 });
     return;
   }
-  if (data.type === 'game_joined') {
+  if (data.type === MSG_LOBBY.GAME_JOINED) {
     joinLoading.value = false;
     emit('success', {
       gameCode: data.gameCode,
@@ -75,9 +82,12 @@ function capitalizeName(s) {
 function doCreate() {
   clearErrors();
   const name = capitalizeName(createName.value.trim()) || 'Jugador 1';
-  const victoryScore = Math.max(100, Math.min(100000, Number(createVictoryScore.value) || 2000));
+  const victoryScore = Math.max(
+    MIN_VICTORY_SCORE,
+    Math.min(MAX_VICTORY_SCORE, Number(createVictoryScore.value) || DEFAULT_VICTORY_SCORE),
+  );
   createLoading.value = true;
-  props.send({ type: 'create', playerName: name, victoryScore });
+  props.send({ type: MSG_SEND.CREATE, playerName: name, victoryScore });
 }
 
 function doJoin() {
@@ -89,7 +99,7 @@ function doJoin() {
     return;
   }
   joinLoading.value = true;
-  props.send({ type: 'join', gameCode: code, playerName: name });
+  props.send({ type: MSG_SEND.JOIN, gameCode: code, playerName: name });
 }
 
 const shareUrl = computed(() => {
