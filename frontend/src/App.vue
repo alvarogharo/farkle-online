@@ -65,7 +65,7 @@ onMounted(() => {
           : Date.now() + TOAST_DURATION_MS;
         const delayMs = Math.max(0, toastDisappearAt - Date.now());
         timerIds.farkleDelayTimeoutId = setTimeout(() => {
-          applyGameState(pendingGameState.value, { preserveDice: true });
+          applyGameState(pendingGameState.value, { preserveDice: false });
           pendingGameState.value = null;
           farklePendingTransition.value = false;
           timerIds.farkleDelayTimeoutId = null;
