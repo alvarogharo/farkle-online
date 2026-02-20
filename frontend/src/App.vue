@@ -262,7 +262,7 @@ const apartarSeleccionados = () => {
   if (!hasSelection.value || !isMyTurn.value) return;
   if (isRolling.value || winnerIndex.value !== null) return;
   if (!hasRolledThisTurn.value || !dices.value.length) return;
-  ws.send({ type: MSG_SEND.APARTAR });
+  ws.send({ type: MSG_SEND.SET_ASIDE });
 };
 
 // Regla: no se puede "plantarse" con una tirada sin haber apartado al menos una vez

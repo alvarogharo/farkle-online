@@ -19,7 +19,7 @@ const (
 	msgJoin            = "join"
 	msgRoll            = "roll"
 	msgToggleSelect    = "toggle_select"
-	msgApartar         = "apartar"
+	msgSetAside        = "set_aside"
 	msgBank            = "bank"
 	msgError           = "error"
 	msgGameCreated     = "game_created"
@@ -248,7 +248,7 @@ func (c *Client) readPump() {
 			c.handleRoll()
 		case msgToggleSelect:
 			c.handleToggleSelect(msg)
-		case msgApartar:
+		case msgSetAside:
 			c.handleApartar()
 		case msgBank:
 			c.handleBank()

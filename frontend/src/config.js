@@ -47,7 +47,7 @@ export const MSG = {
 export const MSG_SEND = {
   ROLL: 'roll',
   TOGGLE_SELECT: 'toggle_select',
-  APARTAR: 'apartar',
+  SET_ASIDE: 'set_aside',
   BANK: 'bank',
   CREATE: 'create',
   JOIN: 'join',
