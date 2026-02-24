@@ -121,6 +121,22 @@ type Game struct {
 	mu                    sync.RWMutex
 }
 
+// nextActivePlayerIndex devuelve el siguiente índice de jugador con cliente activo
+// empezando después de from, recorriendo de forma circular. Devuelve -1 si no hay ninguno.
+func (g *Game) nextActivePlayerIndex(from int) int {
+	n := len(g.clients)
+	if n == 0 {
+		return -1
+	}
+	for step := 1; step <= n; step++ {
+		idx := (from + step) % n
+		if g.clients[idx] != nil {
+			return idx
+		}
+	}
+	return -1
+}
+
 func newHub() *Hub {
 	return &Hub{
 		clients:    make(map[*Client]bool),
@@ -427,15 +443,24 @@ func (h *Hub) broadcastGameState(gameCode string) {
 
 	players := make([]map[string]any, Cfg.NumPlayers)
 	for i := 0; i < Cfg.NumPlayers; i++ {
-		name := "Jugador " + strconv.Itoa(i+1)
-		if i < len(g.playerNames) && g.playerNames[i] != "" {
-			name = g.playerNames[i]
-		}
+		active := i < len(g.clients) && g.clients[i] != nil
+		name := ""
 		total := 0
-		if i < len(g.totals) {
-			total = g.totals[i]
+		if active {
+			if i < len(g.playerNames) && g.playerNames[i] != "" {
+				name = g.playerNames[i]
+			} else {
+				name = "Jugador " + strconv.Itoa(i+1)
+			}
+			if i < len(g.totals) {
+				total = g.totals[i]
+			}
 		}
-		players[i] = map[string]any{"name": name, "total": total}
+		players[i] = map[string]any{
+			"name":   name,
+			"total":  total,
+			"active": active,
+		}
 	}
 
 	remainingCount := 0
@@ -543,7 +568,10 @@ func (c *Client) handleRoll() {
 		g.turnMoves = nil
 		g.dice = nil
 		g.selectedIndices = nil
-		g.currentPlayerIndex = (g.currentPlayerIndex + 1) % Cfg.NumPlayers
+
+		// Pasar turno al siguiente jugador activo, si lo hay
+		next := g.nextActivePlayerIndex(g.currentPlayerIndex)
+		g.currentPlayerIndex = next
 
 		// Si la ronda final estaba activa, marcar el turno extra del jugador y comprobar si termina la partida
 		finalFinished := false
@@ -806,7 +834,7 @@ func (c *Client) handleBank() {
 	if g.finalRoundTriggerIndex == invalidIndex && g.totals[c.playerIndex] >= g.victoryScore {
 		g.finalRoundTriggerIndex = c.playerIndex
 		g.finalRoundPlayedExtra = make([]bool, len(g.clients))
-		g.currentPlayerIndex = (g.currentPlayerIndex + 1) % Cfg.NumPlayers
+		g.currentPlayerIndex = g.nextActivePlayerIndex(g.currentPlayerIndex)
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
 			jsonKeyType:  msgFinalRound,
@@ -816,7 +844,7 @@ func (c *Client) handleBank() {
 		return
 	}
 
-	nextPlayer := (g.currentPlayerIndex + 1) % Cfg.NumPlayers
+	nextPlayer := g.nextActivePlayerIndex(g.currentPlayerIndex)
 	g.currentPlayerIndex = nextPlayer
 	nextName := "Jugador " + strconv.Itoa(nextPlayer+1)
 	if nextPlayer < len(g.playerNames) && g.playerNames[nextPlayer] != "" {

@@ -13,15 +13,15 @@ import (
 var Cfg *Config
 
 type Config struct {
-	Port                 string
-	SendBufferSize       int
-	NumPlayers           int
-	NumDice              int
-	GameCodeLength       int
-	GameCodeChars        string
-	DefaultVictoryScore  int
-	MinVictoryScore      int
-	MaxVictoryScore      int
+	Port                  string
+	SendBufferSize        int
+	NumPlayers            int
+	NumDice               int
+	GameCodeLength        int
+	GameCodeChars         string
+	DefaultVictoryScore   int
+	MinVictoryScore       int
+	MaxVictoryScore       int
 	FinishedGameRetention time.Duration
 	CleanupInterval       time.Duration
 }
@@ -29,7 +29,7 @@ type Config struct {
 func init() {
 	_ = godotenv.Load()
 
-	numPlayers := getEnvInt("FARKLE_NUM_PLAYERS", 2)
+	numPlayers := getEnvInt("FARKLE_NUM_PLAYERS", 10)
 	if numPlayers < 2 {
 		numPlayers = 2
 	}

@@ -144,10 +144,7 @@ onMounted(() => {
         : msg.hotDiceOther(hotDicePlayerName);
       showToast(hotDiceMsg, 'success');
     } else if (data.type === MSG.TURN_CHANGED) {
-      const nextIdx = 1 - currentPlayerIndex.value;
-      const turnMsg = myPlayerIndex.value === nextIdx
-        ? msg.turnYourTurn
-        : (data.message || msg.turnChanged);
+      const turnMsg = data.message || msg.turnChanged;
       showToast(turnMsg, 'info');
     } else if (data.type === MSG.FINAL_ROUND) {
       statusKind.value = 'success';
@@ -324,14 +321,18 @@ onBeforeUnmount(() => {
           </p>
         </template>
         <div class="game-over-scores">
-          <p
+          <template
             v-for="(p, idx) in players"
             :key="p.name"
-            class="game-over-score"
-            :class="{ 'game-over-score--winner': idx === winnerIndex }"
           >
-            {{ p.name }}: {{ p.total }} {{ msg.pointsLabel }}
-          </p>
+            <p
+              v-if="p.active"
+              class="game-over-score"
+              :class="{ 'game-over-score--winner': idx === winnerIndex }"
+            >
+              {{ p.name }}: {{ p.total }} {{ msg.pointsLabel }}
+            </p>
+          </template>
         </div>
         <button
           type="button"
@@ -349,24 +350,28 @@ onBeforeUnmount(() => {
         class="final-round-banner"
       >
         <span class="final-round-banner__icon">🏁</span>
-        {{ msg.finalRoundBannerPrefix }}{{ finalRoundTriggerIndex === myPlayerIndex ? msg.finalRoundBannerTriggered : msg.finalRoundBannerOther(players[1 - finalRoundTriggerIndex]?.name || msg.playerDefault) }}
+        {{ finalRoundTriggerIndex === myPlayerIndex ? msg.finalRoundBannerTriggered : msg.finalRoundBannerOther }}
       </div>
-      <div
+      <template
         v-for="(p, idx) in players"
         :key="p.name"
-        class="player-card"
-        :class="{
-          'player-card--active': idx === currentPlayerIndex && winnerIndex === null,
-          'player-card--winner': idx === winnerIndex,
-        }"
       >
-        <div class="player-name">
-          {{ p.name }}
+        <div
+          v-if="p.active"
+          class="player-card"
+          :class="{
+            'player-card--active': idx === currentPlayerIndex && winnerIndex === null,
+            'player-card--winner': idx === winnerIndex,
+          }"
+        >
+          <div class="player-name">
+            {{ p.name }}
+          </div>
+          <div class="player-total">
+            {{ msg.totalLabel }}: {{ p.total }}
+          </div>
         </div>
-        <div class="player-total">
-          {{ msg.totalLabel }}: {{ p.total }}
-        </div>
-      </div>
+      </template>
     </section>
 
     <section class="help-section">

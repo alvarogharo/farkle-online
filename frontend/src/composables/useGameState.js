@@ -55,6 +55,8 @@ export function useGameState(myPlayerIndex) {
     players.value = ps.map((p) => ({
       name: p.name || msg.playerDefault,
       total: p.total ?? 0,
+      // Si el backend envía "active", úsalo; por defecto asumimos true
+      active: p.active ?? true,
     }));
 
     currentPlayerIndex.value = data.currentPlayerIndex ?? 0;
