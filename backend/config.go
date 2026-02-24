@@ -29,16 +29,24 @@ type Config struct {
 func init() {
 	_ = godotenv.Load()
 
+	numPlayers := getEnvInt("FARKLE_NUM_PLAYERS", 2)
+	if numPlayers < 2 {
+		numPlayers = 2
+	}
+	if numPlayers > 10 {
+		numPlayers = 10
+	}
+
 	Cfg = &Config{
-		Port:                 getEnv("FARKLE_PORT", "8080"),
-		SendBufferSize:       getEnvInt("FARKLE_SEND_BUFFER_SIZE", 256),
-		NumPlayers:           getEnvInt("FARKLE_NUM_PLAYERS", 2),
-		NumDice:              getEnvInt("FARKLE_NUM_DICE", 6),
-		GameCodeLength:       getEnvInt("FARKLE_GAME_CODE_LENGTH", 5),
-		GameCodeChars:        getEnv("FARKLE_GAME_CODE_CHARS", "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"),
-		DefaultVictoryScore:  getEnvInt("FARKLE_DEFAULT_VICTORY_SCORE", 2000),
-		MinVictoryScore:      getEnvInt("FARKLE_MIN_VICTORY_SCORE", 100),
-		MaxVictoryScore:      getEnvInt("FARKLE_MAX_VICTORY_SCORE", 100000),
+		Port:                  getEnv("FARKLE_PORT", "8080"),
+		SendBufferSize:        getEnvInt("FARKLE_SEND_BUFFER_SIZE", 256),
+		NumPlayers:            numPlayers,
+		NumDice:               getEnvInt("FARKLE_NUM_DICE", 6),
+		GameCodeLength:        getEnvInt("FARKLE_GAME_CODE_LENGTH", 5),
+		GameCodeChars:         getEnv("FARKLE_GAME_CODE_CHARS", "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"),
+		DefaultVictoryScore:   getEnvInt("FARKLE_DEFAULT_VICTORY_SCORE", 2000),
+		MinVictoryScore:       getEnvInt("FARKLE_MIN_VICTORY_SCORE", 100),
+		MaxVictoryScore:       getEnvInt("FARKLE_MAX_VICTORY_SCORE", 100000),
 		FinishedGameRetention: getEnvDuration("FARKLE_FINISHED_GAME_RETENTION", 5*time.Minute),
 		CleanupInterval:       getEnvDuration("FARKLE_CLEANUP_INTERVAL", 1*time.Minute),
 	}

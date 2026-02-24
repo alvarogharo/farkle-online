@@ -115,6 +115,7 @@ type Game struct {
 	hasApartadoThisRoll   bool
 	victoryScore          int
 	finalRoundTriggerIndex int       // -1 si no ha pasado
+	finalRoundPlayedExtra []bool
 	winnerIndex           int        // -1 si la partida sigue
 	finishedAt            time.Time  // cuándo terminó la partida
 	mu                    sync.RWMutex
@@ -154,7 +155,6 @@ func (h *Hub) run() {
 	}
 }
 
-// handleClientDisconnect quita al cliente de su partida y notifica al otro jugador.
 func (h *Hub) handleClientDisconnect(client *Client) {
 	if client.gameCode == "" {
 		return
@@ -180,9 +180,16 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 		return
 	}
 
-	otherIndex := 1 - client.playerIndex
-	other := g.clients[otherIndex]
-	if other == nil {
+	// Calcular jugadores restantes todavía en la partida
+	remaining := make([]int, 0, len(g.clients))
+	for i, other := range g.clients {
+		if other != nil {
+			remaining = append(remaining, i)
+		}
+	}
+
+	// Si no queda nadie, eliminamos la partida
+	if len(remaining) == 0 {
 		g.mu.Unlock()
 		h.mu.Lock()
 		delete(h.games, client.gameCode)
@@ -191,16 +198,26 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 		return
 	}
 
-	g.winnerIndex = otherIndex
-	g.finishedAt = time.Now()
 	gameCode := client.gameCode
-	g.mu.Unlock()
 
-	h.broadcastToGame(gameCode, map[string]any{
-		jsonKeyType:  msgPlayerDisconnected,
-		jsonKeyMsg:   "El otro jugador se ha desconectado. Ganas la partida.",
-		jsonKeyWinner: otherIndex,
-	})
+	// Si solo queda un jugador, ese jugador gana por desconexión del resto
+	if len(remaining) == 1 {
+		winnerIndex := remaining[0]
+		g.winnerIndex = winnerIndex
+		g.finishedAt = time.Now()
+		g.mu.Unlock()
+
+		h.broadcastToGame(gameCode, map[string]any{
+			jsonKeyType:  msgPlayerDisconnected,
+			jsonKeyMsg:   "El otro jugador se ha desconectado. Ganas la partida.",
+			jsonKeyWinner: winnerIndex,
+		})
+		h.broadcastGameState(gameCode)
+		return
+	}
+
+	// Si quedan varios jugadores, la partida continúa sin el jugador desconectado
+	g.mu.Unlock()
 	h.broadcastGameState(gameCode)
 }
 
@@ -303,6 +320,7 @@ func (c *Client) handleCreate(msg InMessage) {
 		totals:                 make([]int, Cfg.NumPlayers),
 		victoryScore:           victoryScore,
 		finalRoundTriggerIndex: invalidIndex,
+		finalRoundPlayedExtra:  make([]bool, Cfg.NumPlayers),
 		winnerIndex:            invalidIndex,
 	}
 	g.clients[0] = c
@@ -335,32 +353,44 @@ func (c *Client) handleJoin(msg InMessage) {
 		return
 	}
 
-	if g.clients[1] != nil {
+	// Buscar el primer hueco libre para este jugador
+	slot := -1
+	for i := 0; i < len(g.clients); i++ {
+		if g.clients[i] == nil {
+			slot = i
+			break
+		}
+	}
+	if slot == -1 {
 		c.sendError(errGameFull)
 		return
 	}
 
-	g.clients[1] = c
+	g.clients[slot] = c
 	c.gameCode = msg.GameCode
-	c.playerIndex = 1
+	c.playerIndex = slot
 
 	name := msg.PlayerName
 	if name == "" {
-		name = "Jugador 2"
+		name = "Jugador " + strconv.Itoa(slot+1)
 	}
-	g.playerNames[1] = name
+	g.playerNames[slot] = name
 
 	gamesJoinedTotal.Inc()
 
-	c.sendJSON(map[string]any{jsonKeyType: msgGameJoined, jsonKeyGameCode: msg.GameCode, "playerIndex": 1})
+	c.sendJSON(map[string]any{
+		jsonKeyType:     msgGameJoined,
+		jsonKeyGameCode: msg.GameCode,
+		"playerIndex":   slot,
+	})
 
 	c.hub.broadcastToGame(msg.GameCode, map[string]any{
 		jsonKeyType:      msgPlayerJoined,
-		"playerIndex":    1,
+		"playerIndex":    slot,
 		"playerName":     name,
 	})
 
-	// Broadcast game_state a ambos (partida completa, empieza el juego)
+	// Actualizar el estado para todos los jugadores tras la incorporación
 	c.hub.broadcastGameState(msg.GameCode)
 }
 
@@ -515,21 +545,55 @@ func (c *Client) handleRoll() {
 		g.selectedIndices = nil
 		g.currentPlayerIndex = (g.currentPlayerIndex + 1) % Cfg.NumPlayers
 
-		// Si la ronda final estaba activa y el otro jugador acaba de Farklear
-		if g.finalRoundTriggerIndex >= 0 && finishedIndex != g.finalRoundTriggerIndex {
-			t0, t1 := g.totals[0], g.totals[1]
-			winner := 0
-			if t1 > t0 {
-				winner = 1
-			} else if t0 == t1 {
-				winner = g.finalRoundTriggerIndex
+		// Si la ronda final estaba activa, marcar el turno extra del jugador y comprobar si termina la partida
+		finalFinished := false
+		if g.finalRoundTriggerIndex >= 0 {
+			// El jugador que disparó la ronda final no cuenta como turno extra
+			if finishedIndex != g.finalRoundTriggerIndex && finishedIndex >= 0 && finishedIndex < len(g.finalRoundPlayedExtra) {
+				g.finalRoundPlayedExtra[finishedIndex] = true
 			}
-			g.winnerIndex = winner
-			g.finishedAt = time.Now()
-			g.turnMoves = nil
+
+			allDone := true
+			for i := 0; i < len(g.clients); i++ {
+				if i == g.finalRoundTriggerIndex {
+					continue
+				}
+				if g.clients[i] != nil && !g.finalRoundPlayedExtra[i] {
+					allDone = false
+					break
+				}
+			}
+
+			if allDone {
+				// Calcular ganador por puntuación; en empate, favorece al jugador que disparó la ronda final
+				winner := -1
+				best := -1
+				for i := 0; i < len(g.totals); i++ {
+					if g.clients[i] == nil {
+						continue
+					}
+					if g.totals[i] > best {
+						best = g.totals[i]
+						winner = i
+					} else if g.totals[i] == best && best >= 0 {
+						if winner != g.finalRoundTriggerIndex && i == g.finalRoundTriggerIndex {
+							winner = i
+						}
+					}
+				}
+				if winner >= 0 {
+					g.winnerIndex = winner
+					g.finishedAt = time.Now()
+					g.turnMoves = nil
+					finalFinished = true
+				}
+			}
+		}
+
+		if finalFinished {
 			g.mu.Unlock()
 			c.hub.broadcastToGame(c.gameCode, map[string]any{jsonKeyType: msgFarkle, jsonKeyMsg: "Farkle: pierdes los puntos del turno"})
-			c.hub.broadcastToGame(c.gameCode, map[string]any{jsonKeyType: msgGameOver, jsonKeyWinner: winner, jsonKeyMsg: "Partida terminada"})
+			c.hub.broadcastToGame(c.gameCode, map[string]any{jsonKeyType: msgGameOver, jsonKeyWinner: g.winnerIndex, jsonKeyMsg: "Partida terminada"})
 			c.hub.broadcastGameState(c.gameCode)
 		} else {
 			g.mu.Unlock()
@@ -741,6 +805,7 @@ func (c *Client) handleBank() {
 
 	if g.finalRoundTriggerIndex == invalidIndex && g.totals[c.playerIndex] >= g.victoryScore {
 		g.finalRoundTriggerIndex = c.playerIndex
+		g.finalRoundPlayedExtra = make([]bool, len(g.clients))
 		g.currentPlayerIndex = (g.currentPlayerIndex + 1) % Cfg.NumPlayers
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
@@ -758,21 +823,53 @@ func (c *Client) handleBank() {
 		nextName = g.playerNames[nextPlayer]
 	}
 
-	// Si la ronda final ya estaba activa y el otro jugador acaba de terminar su turno
-	if g.finalRoundTriggerIndex >= 0 && finishedIndex != g.finalRoundTriggerIndex {
-		t0, t1 := g.totals[0], g.totals[1]
-		winner := 0
-		if t1 > t0 {
-			winner = 1
-		} else if t0 == t1 {
-			winner = g.finalRoundTriggerIndex
+	// Si la ronda final ya estaba activa, marcar el turno extra del jugador y comprobar si termina la partida
+	finalFinished := false
+	if g.finalRoundTriggerIndex >= 0 {
+		if finishedIndex != g.finalRoundTriggerIndex && finishedIndex >= 0 && finishedIndex < len(g.finalRoundPlayedExtra) {
+			g.finalRoundPlayedExtra[finishedIndex] = true
 		}
-		g.winnerIndex = winner
-		g.finishedAt = time.Now()
+
+		allDone := true
+		for i := 0; i < len(g.clients); i++ {
+			if i == g.finalRoundTriggerIndex {
+				continue
+			}
+			if g.clients[i] != nil && !g.finalRoundPlayedExtra[i] {
+				allDone = false
+				break
+			}
+		}
+
+		if allDone {
+			winner := -1
+			best := -1
+			for i := 0; i < len(g.totals); i++ {
+				if g.clients[i] == nil {
+					continue
+				}
+				if g.totals[i] > best {
+					best = g.totals[i]
+					winner = i
+				} else if g.totals[i] == best && best >= 0 {
+					if winner != g.finalRoundTriggerIndex && i == g.finalRoundTriggerIndex {
+						winner = i
+					}
+				}
+			}
+			if winner >= 0 {
+				g.winnerIndex = winner
+				g.finishedAt = time.Now()
+				finalFinished = true
+			}
+		}
+	}
+
+	if finalFinished {
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
 			jsonKeyType:  msgGameOver,
-			jsonKeyWinner: winner,
+			jsonKeyWinner: g.winnerIndex,
 			jsonKeyMsg:   "Partida terminada",
 		})
 		c.hub.broadcastGameState(c.gameCode)
