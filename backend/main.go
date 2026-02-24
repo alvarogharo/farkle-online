@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var upgrader = websocket.Upgrader{
@@ -38,6 +39,7 @@ func main() {
 	go hub.cleanupFinishedGames()
 
 	addr := ":" + Cfg.Port
+	http.Handle("/metrics", promhttp.Handler())
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWebSocket(hub, w, r)
 	})

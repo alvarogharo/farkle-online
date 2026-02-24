@@ -142,11 +142,13 @@ func (h *Hub) run() {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
+			wsConnections.Inc()
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
 				h.handleClientDisconnect(client)
 				delete(h.clients, client)
 				close(client.send)
+				wsConnections.Dec()
 			}
 		}
 	}
@@ -184,6 +186,7 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 		g.mu.Unlock()
 		h.mu.Lock()
 		delete(h.games, client.gameCode)
+		activeGames.Dec()
 		h.mu.Unlock()
 		return
 	}
@@ -212,6 +215,7 @@ func (h *Hub) cleanupFinishedGames() {
 			g.mu.RUnlock()
 			if finished {
 				delete(h.games, code)
+				activeGames.Dec()
 				log.Printf("Partida %s eliminada (terminada hace >%v)", code, Cfg.FinishedGameRetention)
 			}
 		}
@@ -310,6 +314,9 @@ func (c *Client) handleCreate(msg InMessage) {
 	c.hub.games[code] = g
 	c.hub.mu.Unlock()
 
+	gamesCreatedTotal.Inc()
+	activeGames.Inc()
+
 	c.sendJSON(map[string]any{jsonKeyType: msgGameCreated, jsonKeyGameCode: code})
 }
 
@@ -342,6 +349,8 @@ func (c *Client) handleJoin(msg InMessage) {
 		name = "Jugador 2"
 	}
 	g.playerNames[1] = name
+
+	gamesJoinedTotal.Inc()
 
 	c.sendJSON(map[string]any{jsonKeyType: msgGameJoined, jsonKeyGameCode: msg.GameCode, "playerIndex": 1})
 
@@ -432,6 +441,11 @@ func (h *Hub) broadcastGameState(gameCode string) {
 }
 
 func (c *Client) handleRoll() {
+	start := time.Now()
+	defer func() {
+		rollDuration.Observe(time.Since(start).Seconds())
+	}()
+
 	if c.gameCode == "" {
 		c.sendError(errNoGame)
 		return
@@ -492,6 +506,7 @@ func (c *Client) handleRoll() {
 
 	// Farkle: si no hay ninguna combinación puntuable en los dados activos, pierde los puntos del turno
 	if !HasAnyScoringOption(activeValues) {
+		farklesTotal.Inc()
 		g.mu.Lock()
 		finishedIndex := g.currentPlayerIndex
 		g.turnPoints = 0
