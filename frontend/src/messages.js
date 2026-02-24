@@ -60,12 +60,15 @@ export const game = {
   scoreSixOfKind: 'Six of a kind = 3000 pts',
   // Final round banner prefix
   finalRoundBannerPrefix: 'Final round! ',
+  playerLabel: (n) => `Player ${n}`,
 };
 
 // ─── Lobby (LobbyModal.vue) ────────────────────────────────────────────────
 export const lobby = {
   serverError: 'Server error',
   codeRequired: 'Enter the game code',
+  nameRequired: 'Name is required',
+  nameTooLong: 'Name must be at most 16 characters',
   defaultPlayer1: 'Player 1',
   defaultPlayer2: 'Player 2',
   shareHint: 'Share this code or link for someone to join the game:',

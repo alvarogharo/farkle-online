@@ -17,6 +17,7 @@ const (
 	msgPong            = "pong"
 	msgCreate          = "create"
 	msgJoin            = "join"
+	msgStart           = "start"
 	msgRoll            = "roll"
 	msgToggleSelect    = "toggle_select"
 	msgSetAside        = "set_aside"
@@ -24,6 +25,7 @@ const (
 	msgError           = "error"
 	msgGameCreated     = "game_created"
 	msgGameJoined      = "game_joined"
+	msgGameStarted     = "game_started"
 	msgGameState       = "game_state"
 	msgGameOver        = "game_over"
 	msgPlayerJoined    = "player_joined"
@@ -281,6 +283,8 @@ func (c *Client) readPump() {
 			c.handleCreate(msg)
 		case msgJoin:
 			c.handleJoin(msg)
+		case msgStart:
+			c.handleStartGame(msg)
 		case msgRoll:
 			c.handleRoll()
 		case msgToggleSelect:
@@ -408,6 +412,37 @@ func (c *Client) handleJoin(msg InMessage) {
 
 	// Actualizar el estado para todos los jugadores tras la incorporación
 	c.hub.broadcastGameState(msg.GameCode)
+}
+
+// handleStartGame marca el inicio de la partida a nivel de lobby,
+// notificando a todos los jugadores que pueden abandonar el lobby.
+func (c *Client) handleStartGame(msg InMessage) {
+	if c.gameCode == "" {
+		c.sendError(errNoGame)
+		return
+	}
+
+	c.hub.mu.RLock()
+	g, ok := c.hub.games[c.gameCode]
+	c.hub.mu.RUnlock()
+	if !ok {
+		c.sendError(errGameNotFound)
+		return
+	}
+
+	g.mu.RLock()
+	isCreator := c.playerIndex == 0
+	g.mu.RUnlock()
+
+	if !isCreator {
+		c.sendError("Only the creator can start the game")
+		return
+	}
+
+	// Notificar a todos los jugadores en la partida que el juego ha empezado
+	c.hub.broadcastToGame(c.gameCode, map[string]any{
+		jsonKeyType: msgGameStarted,
+	})
 }
 
 func (h *Hub) broadcastToGame(gameCode string, payload any) {

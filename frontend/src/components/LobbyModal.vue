@@ -4,6 +4,7 @@ import {
   DEFAULT_VICTORY_SCORE,
   MIN_VICTORY_SCORE,
   MAX_VICTORY_SCORE,
+  MSG,
   MSG_LOBBY,
   MSG_SEND,
 } from '@/config.js';
@@ -24,8 +25,11 @@ const emit = defineEmits(['success']);
 
 const tab = ref('create'); // 'create' | 'join'
 const waitingForPlayer = ref(false);
+const joinedPlayers = ref([]);
 const pendingGameCode = ref('');
 const joinViaLink = ref(false); // true cuando llegas con ?code=XXX
+const localPlayerIndex = ref(0);
+const localGameCode = ref('');
 
 // Crear partida
 const createName = ref('');
@@ -55,20 +59,34 @@ function handleMessage(data) {
     createLoading.value = false;
     serverError.value = '';
     pendingGameCode.value = data.gameCode || '';
+    localGameCode.value = pendingGameCode.value;
+    localPlayerIndex.value = 0;
     waitingForPlayer.value = true;
-    return;
-  }
-  if (data.type === MSG_LOBBY.PLAYER_JOINED) {
-    // El creador recibe esto cuando alguien se une; cerramos el modal
-    emit('success', { gameCode: pendingGameCode.value, playerIndex: 0 });
     return;
   }
   if (data.type === MSG_LOBBY.GAME_JOINED) {
     joinLoading.value = false;
-    emit('success', {
-      gameCode: data.gameCode,
-      playerIndex: data.playerIndex ?? 1,
-    });
+    waitingForPlayer.value = true;
+    pendingGameCode.value = data.gameCode;
+    localGameCode.value = data.gameCode;
+    localPlayerIndex.value = data.playerIndex ?? 1;
+    return;
+  }
+  if (data.type === MSG.GAME_STATE && waitingForPlayer.value) {
+    const ps = data.players || [];
+    joinedPlayers.value = ps
+      .map((p, idx) => ({
+        index: idx,
+        name: p.name || '',
+        active: p.active,
+      }))
+      .filter((p) => p.active && p.name);
+    return;
+  }
+  if (data.type === MSG_LOBBY.GAME_STARTED) {
+    const code = localGameCode.value || pendingGameCode.value || data.gameCode || '';
+    emit('success', { gameCode: code, playerIndex: localPlayerIndex.value });
+    return;
   }
 }
 
@@ -82,7 +100,16 @@ function capitalizeName(s) {
 
 function doCreate() {
   clearErrors();
-  const name = capitalizeName(createName.value.trim()) || lobbyMsg.defaultPlayer1;
+  const raw = createName.value.trim();
+  const len = raw.length;
+  if (len < 1 || len > 16) {
+    serverError.value = len < 1
+      ? lobbyMsg.nameRequired
+      : lobbyMsg.nameTooLong;
+    return;
+  }
+
+  const name = capitalizeName(raw) || lobbyMsg.defaultPlayer1;
   const victoryScore = Math.max(
     MIN_VICTORY_SCORE,
     Math.min(MAX_VICTORY_SCORE, Number(createVictoryScore.value) || DEFAULT_VICTORY_SCORE),
@@ -93,7 +120,16 @@ function doCreate() {
 
 function doJoin() {
   clearErrors();
-  const name = capitalizeName(joinName.value.trim()) || lobbyMsg.defaultPlayer2;
+  const raw = joinName.value.trim();
+  const len = raw.length;
+  if (len < 1 || len > 16) {
+    serverError.value = len < 1
+      ? lobbyMsg.nameRequired
+      : lobbyMsg.nameTooLong;
+    return;
+  }
+
+  const name = capitalizeName(raw) || lobbyMsg.defaultPlayer2;
   const code = joinCode.value.trim().toUpperCase();
   if (!code) {
     serverError.value = lobbyMsg.codeRequired;
@@ -200,7 +236,30 @@ onUnmounted(() => {
             {{ linkCopyFeedback ? lobbyMsg.copyLinkDone : lobbyMsg.copyLink }}
           </button>
         </div>
-        <p class="waiting-hint">{{ lobbyMsg.waitingHint }}</p>
+
+        <div v-if="joinedPlayers.length" class="waiting-players">
+          <h2 class="waiting-players__title">Players in room</h2>
+          <ul class="waiting-players__list">
+            <li
+              v-for="p in joinedPlayers"
+              :key="p.index"
+              class="waiting-players__item"
+            >
+              {{ p.name }}
+            </li>
+          </ul>
+          <button
+            v-if="localPlayerIndex === 0"
+            type="button"
+            class="btn btn--primary"
+            :disabled="!connected"
+            @click="props.send({ type: MSG_SEND.START, gameCode: pendingGameCode })"
+          >
+            Start game
+          </button>
+        </div>
+
+        <p v-else class="waiting-hint">{{ lobbyMsg.waitingHint }}</p>
       </div>
 
       <template v-else>
@@ -314,6 +373,7 @@ onUnmounted(() => {
   background: linear-gradient(180deg, rgba(31, 41, 55, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
   border: 1px solid rgba(148, 163, 184, 0.3);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .lobby-title {
@@ -409,7 +469,7 @@ onUnmounted(() => {
 
 .code-display {
   padding: 0.75rem 1.5rem;
-  font-family: ui-monospace, monospace;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 1.75rem;
   font-weight: 700;
   letter-spacing: 0.25em;
@@ -465,6 +525,53 @@ onUnmounted(() => {
   animation: pulse 1.5s ease-in-out infinite;
 }
 
+.waiting-players {
+  margin-top: 1rem;
+  width: 100%;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.waiting-players__title {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+  color: #f9fafb;
+  font-weight: 600;
+}
+
+.waiting-players__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.waiting-players__item {
+  font-size: 0.9rem;
+  color: #f9fafb;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.waiting-players__item::before {
+  content: counter(player-item) '.';
+}
+
+.waiting-players__list {
+  counter-reset: player-item;
+}
+
+.waiting-players__item {
+  counter-increment: player-item;
+}
+
 @keyframes pulse {
   50% { opacity: 0.6; }
 }
@@ -508,7 +615,7 @@ onUnmounted(() => {
 }
 
 .lobby-input--code {
-  font-family: ui-monospace, monospace;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   letter-spacing: 0.15em;
   text-transform: uppercase;
 }

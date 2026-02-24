@@ -51,6 +51,7 @@ export const MSG_SEND = {
   BANK: 'bank',
   CREATE: 'create',
   JOIN: 'join',
+  START: 'start',
 };
 
 // ─── Tipos de mensajes WebSocket (lobby) ────────────────────────────────────
@@ -59,4 +60,5 @@ export const MSG_LOBBY = {
   GAME_CREATED: 'game_created',
   PLAYER_JOINED: 'player_joined',
   GAME_JOINED: 'game_joined',
+  GAME_STARTED: 'game_started',
 };

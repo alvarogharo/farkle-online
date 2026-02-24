@@ -364,6 +364,9 @@ onBeforeUnmount(() => {
             'player-card--winner': idx === winnerIndex,
           }"
         >
+          <div class="player-label">
+            {{ msg.playerLabel(idx + 1) }}
+          </div>
           <div class="player-name">
             {{ p.name }}
           </div>
@@ -662,6 +665,13 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.player-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9ca3af;
 }
 
 .player-card--active {
