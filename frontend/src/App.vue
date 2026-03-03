@@ -153,14 +153,6 @@ onMounted(() => {
         ? msg.finalRoundTriggered
         : msg.finalRoundLastTurn;
       statusMessage.value = finalMsg;
-    } else if (data.type === MSG.GAME_OVER) {
-      statusKind.value = 'success';
-      const winnerIdx = data.winner;
-      const winnerName = winnerIdx >= 0 && players.value[winnerIdx] ? players.value[winnerIdx].name : null;
-      const gameOverMsg = winnerName && myPlayerIndex.value === winnerIdx
-        ? msg.gameOverYouWin
-        : (winnerName ? msg.gameOverOtherWins(winnerName) : msg.gameOverFinished);
-      statusMessage.value = gameOverMsg;
     } else if (data.type === MSG.PLAYER_DISCONNECTED) {
       finishedByDisconnect.value = true;
       statusKind.value = 'success';
