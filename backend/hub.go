@@ -13,35 +13,35 @@ import (
 
 // Tipos de mensajes WebSocket
 const (
-	msgPing            = "ping"
-	msgPong            = "pong"
-	msgCreate          = "create"
-	msgJoin            = "join"
-	msgStart           = "start"
-	msgRoll            = "roll"
-	msgToggleSelect    = "toggle_select"
-	msgSetAside        = "set_aside"
-	msgBank            = "bank"
-	msgError           = "error"
-	msgGameCreated     = "game_created"
-	msgGameJoined      = "game_joined"
-	msgGameStarted     = "game_started"
-	msgGameState       = "game_state"
-	msgGameOver        = "game_over"
-	msgPlayerJoined    = "player_joined"
+	msgPing               = "ping"
+	msgPong               = "pong"
+	msgCreate             = "create"
+	msgJoin               = "join"
+	msgStart              = "start"
+	msgRoll               = "roll"
+	msgToggleSelect       = "toggle_select"
+	msgSetAside           = "set_aside"
+	msgBank               = "bank"
+	msgError              = "error"
+	msgGameCreated        = "game_created"
+	msgGameJoined         = "game_joined"
+	msgGameStarted        = "game_started"
+	msgGameState          = "game_state"
+	msgGameOver           = "game_over"
+	msgPlayerJoined       = "player_joined"
 	msgPlayerDisconnected = "player_disconnected"
-	msgRollResult      = "roll_result"
-	msgFarkle          = "farkle"
-	msgHotDice         = "hot_dice"
-	msgTurnChanged     = "turn_changed"
-	msgFinalRound      = "final_round"
+	msgRollResult         = "roll_result"
+	msgFarkle             = "farkle"
+	msgHotDice            = "hot_dice"
+	msgTurnChanged        = "turn_changed"
+	msgFinalRound         = "final_round"
 )
 
 const (
-	jsonKeyType   = "type"
-	jsonKeyMsg    = "message"
+	jsonKeyType     = "type"
+	jsonKeyMsg      = "message"
 	jsonKeyGameCode = "gameCode"
-	jsonKeyWinner = "winner"
+	jsonKeyWinner   = "winner"
 )
 
 // Mensajes de error
@@ -127,23 +127,23 @@ func (g *Game) appendFinishedGameToHistory() {
 }
 
 type Game struct {
-	code                  string
-	clients               []*Client
-	playerNames           []string
-	totals                []int
-	currentPlayerIndex    int
-	dice                  []Die
-	selectedIndices       []int
-	turnPoints            int
-	turnMoves             []TurnMove
-	hasApartadoThisRoll   bool
-	victoryScore          int
-	finalRoundTriggerIndex int       // -1 si no ha pasado
-	finalRoundPlayedExtra []bool
-	winnerIndex           int        // -1 si la partida sigue
-	finishedAt            time.Time  // cuándo terminó la partida
-	gameHistory           []map[string]any // historial de partidas terminadas en esta sala
-	mu                    sync.RWMutex
+	code                   string
+	clients                []*Client
+	playerNames            []string
+	totals                 []int
+	currentPlayerIndex     int
+	dice                   []Die
+	selectedIndices        []int
+	turnPoints             int
+	turnMoves              []TurnMove
+	hasApartadoThisRoll    bool
+	victoryScore           int
+	finalRoundTriggerIndex int // -1 si no ha pasado
+	finalRoundPlayedExtra  []bool
+	winnerIndex            int              // -1 si la partida sigue
+	finishedAt             time.Time        // cuándo terminó la partida
+	gameHistory            []map[string]any // historial de partidas terminadas en esta sala
+	mu                     sync.RWMutex
 }
 
 // nextActivePlayerIndex devuelve el siguiente índice de jugador con cliente activo
@@ -250,8 +250,8 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 		g.mu.Unlock()
 
 		h.broadcastToGame(gameCode, map[string]any{
-			jsonKeyType:  msgPlayerDisconnected,
-			jsonKeyMsg:   "El otro jugador se ha desconectado. Ganas la partida.",
+			jsonKeyType:   msgPlayerDisconnected,
+			jsonKeyMsg:    "El otro jugador se ha desconectado. Ganas la partida.",
 			jsonKeyWinner: winnerIndex,
 		})
 		h.broadcastGameState(gameCode)
@@ -429,9 +429,9 @@ func (c *Client) handleJoin(msg InMessage) {
 	})
 
 	c.hub.broadcastToGame(msg.GameCode, map[string]any{
-		jsonKeyType:      msgPlayerJoined,
-		"playerIndex":    slot,
-		"playerName":     name,
+		jsonKeyType:   msgPlayerJoined,
+		"playerIndex": slot,
+		"playerName":  name,
 	})
 
 	// Actualizar el estado para todos los jugadores tras la incorporación
@@ -542,7 +542,7 @@ func (h *Hub) broadcastGameState(gameCode string) {
 		gameHistory = []map[string]any{}
 	}
 	state := map[string]any{
-		jsonKeyType:               msgGameState,
+		jsonKeyType:              msgGameState,
 		"players":                players,
 		"currentPlayerIndex":     g.currentPlayerIndex,
 		"dice":                   g.dice,
@@ -902,8 +902,8 @@ func (c *Client) handleBank() {
 		g.currentPlayerIndex = g.nextActivePlayerIndex(g.currentPlayerIndex)
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
-			jsonKeyType:  msgFinalRound,
-			jsonKeyMsg:   "Ronda final para el otro jugador",
+			jsonKeyType: msgFinalRound,
+			jsonKeyMsg:  "Ronda final para el otro jugador",
 		})
 		c.hub.broadcastGameState(c.gameCode)
 		return
@@ -962,9 +962,9 @@ func (c *Client) handleBank() {
 	if finalFinished {
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
-			jsonKeyType:  msgGameOver,
+			jsonKeyType:   msgGameOver,
 			jsonKeyWinner: g.winnerIndex,
-			jsonKeyMsg:   "Partida terminada",
+			jsonKeyMsg:    "Partida terminada",
 		})
 		c.hub.broadcastGameState(c.gameCode)
 		return

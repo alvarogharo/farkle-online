@@ -17,7 +17,7 @@ import {
 import { game as msg } from '@/messages.js';
 
 export function useGameState(myPlayerIndex) {
-  const players = ref(INITIAL_PLAYERS.map((p) => ({ ...p })));
+  const players = ref(INITIAL_PLAYERS.map((p) => ({ ...p, active: true })));
   const currentPlayerIndex = ref(0);
   const victoryScore = ref(2000);
   const winnerIndex = ref(null);
@@ -130,7 +130,7 @@ export function useGameState(myPlayerIndex) {
   function resetGame() {
     clearRollingTimers();
     isRolling.value = false;
-    players.value = INITIAL_PLAYERS.map((p) => ({ ...p }));
+    players.value = INITIAL_PLAYERS.map((p) => ({ ...p, active: true }));
     currentPlayerIndex.value = 0;
     winnerIndex.value = null;
     turnPoints.value = 0;

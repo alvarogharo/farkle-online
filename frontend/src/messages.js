@@ -26,6 +26,7 @@ export const game = {
   waitingForTurn: (name) => `It's ${name}'s turn. Waiting for their roll…`,
   gameOverTitle: 'Game over',
   gameHistoryTitle: 'Game history',
+  victoryScoreLabel: (n) => `Score to win: ${n} points`,
   backToLobby: 'Back to lobby',
   yourTurn: 'Your turn',
   turnOf: (name) => `${name}'s turn`,

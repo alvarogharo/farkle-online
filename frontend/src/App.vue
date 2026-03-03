@@ -15,6 +15,7 @@ const ws = useWebSocket();
 const inGame = ref(false);
 const gameCode = ref('');
 const myPlayerIndex = ref(-1);
+const showHelp = ref(false);
 
 const game = useGameState(myPlayerIndex);
 
@@ -335,25 +336,10 @@ onBeforeUnmount(() => {
             {{ myPlayerIndex === winnerIndex ? msg.youWin : msg.youLose }}
           </p>
         </template>
-        <div class="game-over-scores">
-          <template
-            v-for="(p, idx) in players"
-            :key="p.name"
-          >
-            <p
-              v-if="p.active"
-              class="game-over-score"
-              :class="{ 'game-over-score--winner': idx === winnerIndex }"
-            >
-              {{ p.name }}: {{ p.total }} {{ msg.pointsLabel }}
-            </p>
-          </template>
-        </div>
         <div
           v-if="gameHistory.length"
           class="game-over-history"
         >
-          <h3 class="game-over-history__title">{{ msg.gameHistoryTitle }}</h3>
           <table class="game-over-history__table">
             <thead>
               <tr>
@@ -395,7 +381,11 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
-    
+
+    <p class="victory-score-banner">
+      {{ msg.victoryScoreLabel(victoryScore) }}
+    </p>
+
     <section class="scoreboard">
       <div
         v-if="finalRoundTriggerIndex !== null && winnerIndex === null"
@@ -430,28 +420,45 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="help-section">
-      <h2>{{ msg.helpTitle }}</h2>
-      <div class="help-table">
-        <div class="help-col">
-          <div class="help-row">{{ msg.score5 }}</div>
-          <div class="help-row">{{ msg.score1 }}</div>
-          <div class="help-row">{{ msg.scoreThree2 }}</div>
-          <div class="help-row">{{ msg.scoreThree3 }}</div>
-          <div class="help-row">{{ msg.scoreThree4 }}</div>
-          <div class="help-row">{{ msg.scoreThree5 }}</div>
-          <div class="help-row">{{ msg.scoreThree6 }}</div>
-          <div class="help-row">{{ msg.scoreThree1 }}</div>
+      <button
+        type="button"
+        class="help-toggle"
+        @click="showHelp = !showHelp"
+      >
+        <h2 class="help-title">{{ msg.helpTitle }}</h2>
+        <span
+          class="help-toggle__chevron"
+          :class="{ 'help-toggle__chevron--open': showHelp }"
+        >
+          ▾
+        </span>
+      </button>
+      <Transition name="help-collapse">
+        <div
+          v-if="showHelp"
+          class="help-table"
+        >
+          <div class="help-col">
+            <div class="help-row">{{ msg.score5 }}</div>
+            <div class="help-row">{{ msg.score1 }}</div>
+            <div class="help-row">{{ msg.scoreThree2 }}</div>
+            <div class="help-row">{{ msg.scoreThree3 }}</div>
+            <div class="help-row">{{ msg.scoreThree4 }}</div>
+            <div class="help-row">{{ msg.scoreThree5 }}</div>
+            <div class="help-row">{{ msg.scoreThree6 }}</div>
+            <div class="help-row">{{ msg.scoreThree1 }}</div>
+          </div>
+          <div class="help-col">
+            <div class="help-row">{{ msg.scoreFourOfKind }}</div>
+            <div class="help-row">{{ msg.scoreStraight }}</div>
+            <div class="help-row">{{ msg.scoreThreePairs }}</div>
+            <div class="help-row">{{ msg.scoreFourAndPair }}</div>
+            <div class="help-row">{{ msg.scoreFiveOfKind }}</div>
+            <div class="help-row">{{ msg.scoreTwoTriples }}</div>
+            <div class="help-row">{{ msg.scoreSixOfKind }}</div>
+          </div>
         </div>
-        <div class="help-col">
-          <div class="help-row">{{ msg.scoreFourOfKind }}</div>
-          <div class="help-row">{{ msg.scoreStraight }}</div>
-          <div class="help-row">{{ msg.scoreThreePairs }}</div>
-          <div class="help-row">{{ msg.scoreFourAndPair }}</div>
-          <div class="help-row">{{ msg.scoreFiveOfKind }}</div>
-          <div class="help-row">{{ msg.scoreTwoTriples }}</div>
-          <div class="help-row">{{ msg.scoreSixOfKind }}</div>
-        </div>
-      </div>
+      </Transition>
     </section>
 
     <section class="controls">
@@ -650,6 +657,17 @@ h1 {
   font-weight: 600;
 }
 
+.victory-score-banner {
+  margin: 0.25rem 0 0.75rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  color: #e5e7eb;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
 .game-over-history {
   margin: 0 0 1.5rem;
   width: 100%;
@@ -810,16 +828,40 @@ h1 {
 
 .help-section {
   width: 100%;
-  max-width: 900px;
+  max-width: 820px;
+  margin: 0 auto;
+  box-sizing: border-box;
   background: rgba(15, 23, 42, 0.6);
   border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.85rem 0.75rem;
   border: 1px solid rgba(148, 163, 184, 0.4);
 }
 
-.help-section h2 {
+.help-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.25rem 0.15rem;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.help-title {
   font-size: 0.95rem;
-  margin-bottom: 0.4rem;
+  margin: 0;
+}
+
+.help-toggle__chevron {
+  font-size: 0.9rem;
+  transition: transform 0.18s ease;
+}
+
+.help-toggle__chevron--open {
+  transform: rotate(180deg);
 }
 
 .help-table {
@@ -837,6 +879,17 @@ h1 {
 
 .help-row {
   white-space: nowrap;
+}
+
+.help-collapse-enter-active,
+.help-collapse-leave-active {
+  transition: max-height 0.2s ease, opacity 0.2s ease;
+}
+
+.help-collapse-enter-from,
+.help-collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
 }
 
 
@@ -972,5 +1025,14 @@ h1 {
 
 .status--success {
   border-color: rgba(34, 197, 94, 0.55);
+}
+</style>
+
+<style>
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #02040b;
 }
 </style>
