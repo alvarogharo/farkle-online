@@ -162,8 +162,8 @@ const pips = computed(() => {
 }
 
 .pip {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   margin: auto;
   border-radius: 50%;
   background: transparent;
@@ -172,8 +172,8 @@ const pips = computed(() => {
 }
 
 .dice--compact .pip {
-  width: 8px;
-  height: 8px;
+  width: 11px;
+  height: 11px;
 }
 
 .pip--visible {
