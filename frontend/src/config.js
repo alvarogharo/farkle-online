@@ -52,6 +52,7 @@ export const MSG_SEND = {
   CREATE: 'create',
   JOIN: 'join',
   START: 'start',
+  RESTART: 'restart',
 };
 
 // ─── Tipos de mensajes WebSocket (lobby) ────────────────────────────────────

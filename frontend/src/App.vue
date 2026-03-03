@@ -228,6 +228,17 @@ const isMyTurn = computed(() =>
   && currentPlayerIndex.value === myPlayerIndex.value,
 );
 
+const isHost = computed(() =>
+  inGame.value
+  && myPlayerIndex.value === 0,
+);
+
+const restartGame = () => {
+  if (!isHost.value) return;
+  if (!gameCode.value) return;
+  ws.send({ type: MSG_SEND.RESTART, gameCode: gameCode.value });
+};
+
 const rollDices = () => {
   if (!isMyTurn.value) return;
   if (isRolling.value) return;
@@ -372,13 +383,23 @@ onBeforeUnmount(() => {
             </tbody>
           </table>
         </div>
-        <button
-          type="button"
-          class="btn btn--primary"
-          @click="goToLobby"
-        >
-          {{ msg.backToLobby }}
-        </button>
+        <div class="game-over-actions">
+          <button
+            v-if="isHost"
+            type="button"
+            class="btn btn--primary"
+            @click="restartGame"
+          >
+            Play again
+          </button>
+          <button
+            type="button"
+            class="btn btn--secondary"
+            @click="goToLobby"
+          >
+            {{ msg.backToLobby }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -711,6 +732,13 @@ h1 {
 .game-over-history__td--winner {
   color: #22c55e;
   font-weight: 700;
+}
+
+.game-over-actions {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
 }
 
 .toast {

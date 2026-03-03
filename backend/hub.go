@@ -18,6 +18,7 @@ const (
 	msgCreate             = "create"
 	msgJoin               = "join"
 	msgStart              = "start"
+	msgRestart            = "restart"
 	msgRoll               = "roll"
 	msgToggleSelect       = "toggle_select"
 	msgSetAside           = "set_aside"
@@ -309,6 +310,8 @@ func (c *Client) readPump() {
 			c.handleJoin(msg)
 		case msgStart:
 			c.handleStartGame(msg)
+		case msgRestart:
+			c.handleRestartGame(msg)
 		case msgRoll:
 			c.handleRoll()
 		case msgToggleSelect:
@@ -467,6 +470,65 @@ func (c *Client) handleStartGame(msg InMessage) {
 	c.hub.broadcastToGame(c.gameCode, map[string]any{
 		jsonKeyType: msgGameStarted,
 	})
+}
+
+// handleRestartGame reinicia una partida ya terminada en la misma sala,
+// manteniendo jugadores y configuración pero reseteando puntuaciones y estado.
+func (c *Client) handleRestartGame(msg InMessage) {
+	if c.gameCode == "" {
+		c.sendError(errNoGame)
+		return
+	}
+
+	c.hub.mu.RLock()
+	g, ok := c.hub.games[c.gameCode]
+	c.hub.mu.RUnlock()
+	if !ok {
+		c.sendError(errGameNotFound)
+		return
+	}
+
+	g.mu.Lock()
+
+	// Solo el creador puede reiniciar la partida
+	if c.playerIndex != 0 {
+		g.mu.Unlock()
+		c.sendError("Only the creator can restart the game")
+		return
+	}
+
+	// Solo se puede reiniciar si la partida ha terminado
+	if g.winnerIndex < 0 {
+		g.mu.Unlock()
+		c.sendError("Game is not finished yet")
+		return
+	}
+
+	// Reiniciar puntuaciones y estado de turno
+	for i := range g.totals {
+		g.totals[i] = 0
+	}
+
+	g.dice = nil
+	g.selectedIndices = nil
+	g.turnPoints = 0
+	g.turnMoves = nil
+	g.hasApartadoThisRoll = false
+	g.finalRoundTriggerIndex = invalidIndex
+	g.finalRoundPlayedExtra = make([]bool, len(g.clients))
+	g.winnerIndex = invalidIndex
+	g.finishedAt = time.Time{}
+
+	// El siguiente jugador será el primer jugador activo
+	g.currentPlayerIndex = g.nextActivePlayerIndex(-1)
+	if g.currentPlayerIndex < 0 {
+		g.currentPlayerIndex = 0
+	}
+
+	g.mu.Unlock()
+
+	// Enviar nuevo estado de juego (status: playing) a todos los clientes
+	c.hub.broadcastGameState(c.gameCode)
 }
 
 func (h *Hub) broadcastToGame(gameCode string, payload any) {
