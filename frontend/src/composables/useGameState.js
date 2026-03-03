@@ -23,6 +23,7 @@ export function useGameState(myPlayerIndex) {
   const winnerIndex = ref(null);
   const finalRoundTriggerIndex = ref(null);
   const finishedByDisconnect = ref(false);
+  const gameHistory = ref([]);
 
   const dices = ref([]);
   const remainingDiceCount = ref(DEFAULT_DICE_COUNT);
@@ -63,6 +64,7 @@ export function useGameState(myPlayerIndex) {
     victoryScore.value = data.victoryScore ?? 2000;
     winnerIndex.value = data.winnerIndex >= 0 ? data.winnerIndex : null;
     finalRoundTriggerIndex.value = data.finalRoundTriggerIndex >= 0 ? data.finalRoundTriggerIndex : null;
+    gameHistory.value = Array.isArray(data.gameHistory) ? data.gameHistory : [];
 
     const diceArr = data.dice || [];
     if (!preserveDice) {
@@ -140,6 +142,7 @@ export function useGameState(myPlayerIndex) {
     hasRolledThisTurn.value = false;
     finalRoundTriggerIndex.value = null;
     finishedByDisconnect.value = false;
+    gameHistory.value = [];
     isTurnEnding.value = false;
     statusMessage.value = '';
     statusKind.value = 'info';
@@ -152,6 +155,7 @@ export function useGameState(myPlayerIndex) {
     winnerIndex,
     finalRoundTriggerIndex,
     finishedByDisconnect,
+    gameHistory,
     dices,
     remainingDiceCount,
     isRolling,

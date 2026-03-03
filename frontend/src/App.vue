@@ -25,6 +25,7 @@ const {
   winnerIndex,
   finalRoundTriggerIndex,
   finishedByDisconnect,
+  gameHistory,
   dices,
   remainingDiceCount,
   isRolling,
@@ -172,6 +173,28 @@ const appState = computed(() => {
   if (!inGame.value) return 'lobby';
   if (winnerIndex.value !== null) return 'finished';
   return 'playing';
+});
+
+// Columnas del historial: índices únicos de jugadores que participaron en alguna partida
+const gameHistoryColumns = computed(() => {
+  const history = gameHistory.value ?? [];
+  if (!history.length) return [];
+  const indexSet = new Set();
+  const indexToName = {};
+  for (const entry of history) {
+    for (const p of entry.players ?? []) {
+      const idx = p.index ?? indexSet.size;
+      indexSet.add(idx);
+      if (p.name != null && p.name !== '' && indexToName[idx] == null) {
+        indexToName[idx] = p.name;
+      }
+    }
+  }
+  const indices = [...indexSet].sort((a, b) => a - b);
+  return indices.map((idx) => ({
+    index: idx,
+    name: indexToName[idx] || msg.playerLabel(idx + 1),
+  }));
 });
 
 function goToLobby() {
@@ -325,6 +348,43 @@ onBeforeUnmount(() => {
               {{ p.name }}: {{ p.total }} {{ msg.pointsLabel }}
             </p>
           </template>
+        </div>
+        <div
+          v-if="gameHistory.length"
+          class="game-over-history"
+        >
+          <h3 class="game-over-history__title">{{ msg.gameHistoryTitle }}</h3>
+          <table class="game-over-history__table">
+            <thead>
+              <tr>
+                <th class="game-over-history__th">#</th>
+                <th
+                  v-for="col in gameHistoryColumns"
+                  :key="col.index"
+                  class="game-over-history__th"
+                >
+                  {{ col.name }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(entry, gameIdx) in gameHistory"
+                :key="gameIdx"
+                class="game-over-history__row"
+              >
+                <td class="game-over-history__td game-over-history__td--num">{{ gameIdx + 1 }}</td>
+                <td
+                  v-for="col in gameHistoryColumns"
+                  :key="col.index"
+                  class="game-over-history__td"
+                  :class="{ 'game-over-history__td--winner': col.index === entry.winnerIndex }"
+                >
+                  {{ (entry.players ?? []).find(p => p.index === col.index)?.total ?? 0 }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <button
           type="button"
@@ -588,6 +648,51 @@ h1 {
 .game-over-score--winner {
   color: #22c55e;
   font-weight: 600;
+}
+
+.game-over-history {
+  margin: 0 0 1.5rem;
+  width: 100%;
+  max-width: 400px;
+  overflow-x: auto;
+}
+
+.game-over-history__title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e5e7eb;
+  text-align: left;
+}
+
+.game-over-history__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  color: #cbd5e1;
+}
+
+.game-over-history__th {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.4);
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+.game-over-history__td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.game-over-history__td--num {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.game-over-history__td--winner {
+  color: #22c55e;
+  font-weight: 700;
 }
 
 .toast {

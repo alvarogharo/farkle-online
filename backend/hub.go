@@ -104,6 +104,28 @@ type TurnMove struct {
 	Points int   `json:"points"`
 }
 
+// appendFinishedGameToHistory guarda la partida recién terminada en el historial.
+// Solo incluye jugadores que participaron (playerNames[i] != "").
+// Debe llamarse con g.mu bloqueado, justo después de asignar g.winnerIndex.
+func (g *Game) appendFinishedGameToHistory() {
+	players := make([]map[string]any, 0)
+	for i := range g.playerNames {
+		if i >= len(g.playerNames) || g.playerNames[i] == "" {
+			continue
+		}
+		name := g.playerNames[i]
+		total := 0
+		if i < len(g.totals) {
+			total = g.totals[i]
+		}
+		players = append(players, map[string]any{"name": name, "total": total, "index": i})
+	}
+	g.gameHistory = append(g.gameHistory, map[string]any{
+		"players":     players,
+		"winnerIndex": g.winnerIndex,
+	})
+}
+
 type Game struct {
 	code                  string
 	clients               []*Client
@@ -120,6 +142,7 @@ type Game struct {
 	finalRoundPlayedExtra []bool
 	winnerIndex           int        // -1 si la partida sigue
 	finishedAt            time.Time  // cuándo terminó la partida
+	gameHistory           []map[string]any // historial de partidas terminadas en esta sala
 	mu                    sync.RWMutex
 }
 
@@ -223,6 +246,7 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 		winnerIndex := remaining[0]
 		g.winnerIndex = winnerIndex
 		g.finishedAt = time.Now()
+		g.appendFinishedGameToHistory()
 		g.mu.Unlock()
 
 		h.broadcastToGame(gameCode, map[string]any{
@@ -513,6 +537,10 @@ func (h *Hub) broadcastGameState(gameCode string) {
 	if turnMoves == nil {
 		turnMoves = []TurnMove{}
 	}
+	gameHistory := g.gameHistory
+	if gameHistory == nil {
+		gameHistory = []map[string]any{}
+	}
 	state := map[string]any{
 		jsonKeyType:               msgGameState,
 		"players":                players,
@@ -526,6 +554,7 @@ func (h *Hub) broadcastGameState(gameCode string) {
 		"finalRoundTriggerIndex": g.finalRoundTriggerIndex,
 		"winnerIndex":            g.winnerIndex,
 		"status":                 status,
+		"gameHistory":            gameHistory,
 	}
 	h.broadcastToGame(gameCode, state)
 }
@@ -648,6 +677,7 @@ func (c *Client) handleRoll() {
 					g.winnerIndex = winner
 					g.finishedAt = time.Now()
 					g.turnMoves = nil
+					g.appendFinishedGameToHistory()
 					finalFinished = true
 				}
 			}
@@ -923,6 +953,7 @@ func (c *Client) handleBank() {
 			if winner >= 0 {
 				g.winnerIndex = winner
 				g.finishedAt = time.Now()
+				g.appendFinishedGameToHistory()
 				finalFinished = true
 			}
 		}

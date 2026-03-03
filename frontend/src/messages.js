@@ -25,6 +25,7 @@ export const game = {
   diceReady: (n) => `You have ${n} dice ready. Press "Roll dice".`,
   waitingForTurn: (name) => `It's ${name}'s turn. Waiting for their roll…`,
   gameOverTitle: 'Game over',
+  gameHistoryTitle: 'Game history',
   backToLobby: 'Back to lobby',
   yourTurn: 'Your turn',
   turnOf: (name) => `${name}'s turn`,
