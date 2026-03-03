@@ -73,6 +73,13 @@ function handleMessage(data) {
     return;
   }
   if (data.type === MSG.GAME_STATE && waitingForPlayer.value) {
+    // Si la partida ya ha empezado (status playing/finished), ir directamente al juego
+    const status = data.status || '';
+    if (status === 'playing' || status === 'finished') {
+      const code = localGameCode.value || pendingGameCode.value || data.gameCode || '';
+      emit('success', { gameCode: code, playerIndex: localPlayerIndex.value });
+      return;
+    }
     const ps = data.players || [];
     joinedPlayers.value = ps
       .map((p, idx) => ({
