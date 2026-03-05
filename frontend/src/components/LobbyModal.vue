@@ -9,6 +9,7 @@ import {
   MSG_SEND,
 } from '@/config.js';
 import { lobby as lobbyMsg } from '@/messages.js';
+import BaseModal from '@/components/BaseModal.vue';
 
 const props = defineProps({
   /** Función para enviar mensajes por WebSocket */
@@ -31,9 +32,12 @@ const joinViaLink = ref(false); // true cuando llegas con ?code=XXX
 const localPlayerIndex = ref(0);
 const localGameCode = ref('');
 
+const currentVictoryScore = ref(DEFAULT_VICTORY_SCORE);
+const showConfigModal = ref(false);
+const tempVictoryScore = ref(DEFAULT_VICTORY_SCORE);
+
 // Crear partida
 const createName = ref('');
-const createVictoryScore = ref(DEFAULT_VICTORY_SCORE);
 const createLoading = ref(false);
 
 // Unirse
@@ -61,6 +65,7 @@ function handleMessage(data) {
     pendingGameCode.value = data.gameCode || '';
     localGameCode.value = pendingGameCode.value;
     localPlayerIndex.value = 0;
+    currentVictoryScore.value = DEFAULT_VICTORY_SCORE;
     waitingForPlayer.value = true;
     return;
   }
@@ -70,6 +75,7 @@ function handleMessage(data) {
     pendingGameCode.value = data.gameCode;
     localGameCode.value = data.gameCode;
     localPlayerIndex.value = data.playerIndex ?? 1;
+    currentVictoryScore.value = DEFAULT_VICTORY_SCORE;
     return;
   }
   if (data.type === MSG.GAME_STATE && waitingForPlayer.value) {
@@ -80,6 +86,9 @@ function handleMessage(data) {
       return;
     }
     const ps = data.players || [];
+    if (typeof data.victoryScore === 'number') {
+      currentVictoryScore.value = data.victoryScore;
+    }
     joinedPlayers.value = ps
       .map((p, idx) => ({
         index: idx,
@@ -118,7 +127,7 @@ function doCreate() {
   const name = capitalizeName(raw) || lobbyMsg.defaultPlayer1;
   const victoryScore = Math.max(
     MIN_VICTORY_SCORE,
-    Math.min(MAX_VICTORY_SCORE, Number(createVictoryScore.value) || DEFAULT_VICTORY_SCORE),
+    Math.min(MAX_VICTORY_SCORE, Number(currentVictoryScore.value) || DEFAULT_VICTORY_SCORE),
   );
   createLoading.value = true;
   props.send({ type: MSG_SEND.CREATE, playerName: name, victoryScore });
@@ -200,6 +209,28 @@ const copyFeedback = ref(false);
 onUnmounted(() => {
   unsubscribe();
 });
+
+function openConfigModal() {
+  tempVictoryScore.value = currentVictoryScore.value || DEFAULT_VICTORY_SCORE;
+  showConfigModal.value = true;
+}
+
+function applyConfig() {
+  const raw = Number(tempVictoryScore.value) || DEFAULT_VICTORY_SCORE;
+  const clamped = Math.max(MIN_VICTORY_SCORE, Math.min(MAX_VICTORY_SCORE, raw));
+  const code = localGameCode.value || pendingGameCode.value;
+  if (!code) {
+    showConfigModal.value = false;
+    return;
+  }
+  currentVictoryScore.value = clamped;
+  props.send({
+    type: MSG_SEND.UPDATE_CONFIG,
+    gameCode: code,
+    victoryScore: clamped,
+  });
+  showConfigModal.value = false;
+}
 </script>
 
 <template>
@@ -242,6 +273,20 @@ onUnmounted(() => {
             {{ linkCopyFeedback ? lobbyMsg.copyLinkDone : lobbyMsg.copyLink }}
           </button>
         </div>
+
+        <p class="waiting-victory">
+          {{ lobbyMsg.scoreToWin }}: <strong>{{ currentVictoryScore }}</strong>
+        </p>
+
+        <button
+          v-if="localPlayerIndex === 0"
+          type="button"
+          class="btn btn--primary waiting-settings-btn"
+          :disabled="!connected"
+          @click="openConfigModal"
+        >
+          {{ lobbyMsg.gameSettings }}
+        </button>
 
         <div v-if="joinedPlayers.length" class="waiting-players">
           <h2 class="waiting-players__title">Players in room</h2>
@@ -299,17 +344,6 @@ onUnmounted(() => {
             :disabled="!connected"
           >
         </label>
-        <label class="lobby-label">
-          {{ lobbyMsg.scoreToWin }}
-          <input
-            v-model.number="createVictoryScore"
-            type="number"
-            class="lobby-input"
-            min="100"
-            max="100000"
-            :disabled="!connected"
-          >
-        </label>
         <button
           type="submit"
           class="btn btn--primary"
@@ -356,6 +390,45 @@ onUnmounted(() => {
       </template>
     </div>
   </div>
+
+  <BaseModal
+    v-if="showConfigModal"
+    :title="lobbyMsg.gameSettings"
+    :on-close="() => { showConfigModal = false; }"
+  >
+    <div class="config-field">
+      <label class="config-label">
+        {{ lobbyMsg.scoreToWin }}
+        <input
+          v-model.number="tempVictoryScore"
+          type="number"
+          class="config-input"
+          :min="MIN_VICTORY_SCORE"
+          :max="MAX_VICTORY_SCORE"
+        >
+      </label>
+      <p class="config-hint">
+        ({{ MIN_VICTORY_SCORE }} – {{ MAX_VICTORY_SCORE }})
+      </p>
+    </div>
+
+    <template #footer>
+      <button
+        type="button"
+        class="btn btn--secondary"
+        @click="showConfigModal = false"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="btn btn--primary"
+        @click="applyConfig"
+      >
+        Save
+      </button>
+    </template>
+  </BaseModal>
 </template>
 
 <style scoped>
@@ -464,6 +537,51 @@ onUnmounted(() => {
   align-items: center;
   gap: 1rem;
   padding: 0.5rem 0;
+}
+
+.waiting-victory {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.9rem;
+  color: #e5e7eb;
+}
+
+.waiting-settings-btn {
+  margin-top: 0.25rem;
+}
+
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.config-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  color: #e5e7eb;
+}
+
+.config-input {
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  background: rgba(15, 23, 42, 0.9);
+  color: #f9fafb;
+  font-size: 0.95rem;
+}
+
+.config-input:focus {
+  outline: none;
+  border-color: rgba(34, 197, 94, 0.7);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.4);
+}
+
+.config-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #9ca3af;
 }
 
 .waiting-text {

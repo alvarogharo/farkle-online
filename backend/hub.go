@@ -18,6 +18,7 @@ const (
 	msgCreate             = "create"
 	msgJoin               = "join"
 	msgStart              = "start"
+	msgUpdateConfig       = "update_config"
 	msgRestart            = "restart"
 	msgRoll               = "roll"
 	msgToggleSelect       = "toggle_select"
@@ -345,6 +346,8 @@ func (c *Client) readPump() {
 			c.handleJoin(msg)
 		case msgStart:
 			c.handleStartGame(msg)
+		case msgUpdateConfig:
+			c.handleUpdateConfig(msg)
 		case msgRestart:
 			c.handleRestartGame(msg)
 		case msgRoll:
@@ -567,6 +570,48 @@ func (c *Client) handleRestartGame(msg InMessage) {
 
 	// Enviar nuevo estado de juego (status: playing) a todos los clientes
 	c.hub.broadcastGameState(c.gameCode)
+}
+
+// handleUpdateConfig permite al creador actualizar la configuración de la partida
+// antes de que empiece (por ahora solo victoryScore).
+func (c *Client) handleUpdateConfig(msg InMessage) {
+	if c.gameCode == "" {
+		c.sendError(errNoGame)
+		return
+	}
+
+	c.hub.mu.RLock()
+	g, ok := c.hub.games[c.gameCode]
+	c.hub.mu.RUnlock()
+	if !ok {
+		c.sendError(errGameNotFound)
+		return
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Solo el creador puede cambiar la configuración
+	if c.playerIndex != 0 {
+		c.sendError("Only the creator can change game settings")
+		return
+	}
+
+	// No se puede cambiar la configuración una vez empezada o terminada la partida
+	if g.gameStarted || g.winnerIndex >= 0 {
+		c.sendError("Game settings can only be changed before the game starts")
+		return
+	}
+
+	victoryScore := msg.VictoryScore
+	if victoryScore < Cfg.MinVictoryScore || victoryScore > Cfg.MaxVictoryScore {
+		victoryScore = Cfg.DefaultVictoryScore
+	}
+
+	g.victoryScore = victoryScore
+
+	// Notificar el nuevo estado a todos los jugadores en el lobby
+	go c.hub.broadcastGameState(c.gameCode)
 }
 
 func (h *Hub) broadcastToGame(gameCode string, payload any) {

@@ -52,6 +52,7 @@ export const MSG_SEND = {
   CREATE: 'create',
   JOIN: 'join',
   START: 'start',
+  UPDATE_CONFIG: 'update_config',
   RESTART: 'restart',
 };
 

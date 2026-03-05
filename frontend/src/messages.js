@@ -93,4 +93,5 @@ export const lobby = {
   gameCode: 'Game code',
   joining: 'Joining…',
   join: 'Join',
+  gameSettings: 'Game settings',
 };
