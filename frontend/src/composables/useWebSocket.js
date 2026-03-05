@@ -3,6 +3,9 @@ import { WS_URL } from '@/config.js'
 
 /**
  * Composable para gestión de conexión WebSocket con el backend Farkle.
+ * Incluye reconexión automática básica y heartbeat para detectar sockets "zombi"
+ * (típicos de dispositivos móviles al ir a segundo plano).
+ *
  * @param {Object} options
  * @param {string} options.url - URL del WebSocket (default: desde config/ env VITE_WS_URL)
  * @param {boolean} options.autoReconnect - Si reintentar conexión al cerrarse (default: true)
@@ -22,6 +25,35 @@ export function useWebSocket(options = {}) {
   let ws = null
   let messageHandlers = []
   let reconnectTimeout = null
+  let heartbeatIntervalId = null
+  let lastPongAt = 0
+
+  const HEARTBEAT_INTERVAL_MS = 15000
+  const HEARTBEAT_STALE_MS = 40000
+
+  function startHeartbeat() {
+    if (heartbeatIntervalId) {
+      clearInterval(heartbeatIntervalId)
+      heartbeatIntervalId = null
+    }
+    heartbeatIntervalId = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+
+      const now = Date.now()
+      if (lastPongAt && now - lastPongAt > HEARTBEAT_STALE_MS) {
+        // Conexión estancada: forzar cierre para que la lógica de reconexión actúe
+        ws.close()
+        return
+      }
+
+      // Heartbeat ligero; el backend responde con msgPong
+      try {
+        ws.send(JSON.stringify({ type: 'ping' }))
+      } catch {
+        // Si falla el envío, dejamos que onclose gestione la reconexión
+      }
+    }, HEARTBEAT_INTERVAL_MS)
+  }
 
   function connect() {
     if (ws?.readyState === WebSocket.OPEN) return
@@ -32,11 +64,16 @@ export function useWebSocket(options = {}) {
     ws.onopen = () => {
       connected.value = true
       retryCount.value = 0
+      lastPongAt = Date.now()
+      startHeartbeat()
     }
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
+        if (data?.type === 'pong') {
+          lastPongAt = Date.now()
+        }
         messageHandlers.forEach((fn) => fn(data))
       } catch (e) {
         console.error('[WebSocket] Error parsing message:', e)
@@ -51,6 +88,11 @@ export function useWebSocket(options = {}) {
       connected.value = false
       ws = null
 
+      if (heartbeatIntervalId) {
+        clearInterval(heartbeatIntervalId)
+        heartbeatIntervalId = null
+      }
+
       if (autoReconnect && retryCount.value < maxRetries && !event.wasClean) {
         const delay = Math.min(1000 * 2 ** retryCount.value, 30000)
         retryCount.value++
@@ -63,6 +105,10 @@ export function useWebSocket(options = {}) {
     if (reconnectTimeout) {
       clearTimeout(reconnectTimeout)
       reconnectTimeout = null
+    }
+    if (heartbeatIntervalId) {
+      clearInterval(heartbeatIntervalId)
+      heartbeatIntervalId = null
     }
     retryCount.value = maxRetries // Evita reconexión al desconectar manualmente
     if (ws) {
