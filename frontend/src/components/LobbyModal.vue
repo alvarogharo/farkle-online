@@ -33,8 +33,10 @@ const localPlayerIndex = ref(0);
 const localGameCode = ref('');
 
 const currentVictoryScore = ref(DEFAULT_VICTORY_SCORE);
+const currentBonusAfter2ndHotDice = ref(false);
 const showConfigModal = ref(false);
 const tempVictoryScore = ref(DEFAULT_VICTORY_SCORE);
+const tempBonusAfter2ndHotDice = ref(false);
 
 // Crear partida
 const createName = ref('');
@@ -66,6 +68,7 @@ function handleMessage(data) {
     localGameCode.value = pendingGameCode.value;
     localPlayerIndex.value = 0;
     currentVictoryScore.value = DEFAULT_VICTORY_SCORE;
+    currentBonusAfter2ndHotDice.value = false;
     waitingForPlayer.value = true;
     return;
   }
@@ -76,6 +79,7 @@ function handleMessage(data) {
     localGameCode.value = data.gameCode;
     localPlayerIndex.value = data.playerIndex ?? 1;
     currentVictoryScore.value = DEFAULT_VICTORY_SCORE;
+    currentBonusAfter2ndHotDice.value = false;
     return;
   }
   if (data.type === MSG.GAME_STATE && waitingForPlayer.value) {
@@ -88,6 +92,9 @@ function handleMessage(data) {
     const ps = data.players || [];
     if (typeof data.victoryScore === 'number') {
       currentVictoryScore.value = data.victoryScore;
+    }
+    if (typeof data.bonusAfterSecondHotDice === 'boolean') {
+      currentBonusAfter2ndHotDice.value = data.bonusAfterSecondHotDice;
     }
     joinedPlayers.value = ps
       .map((p, idx) => ({
@@ -130,7 +137,12 @@ function doCreate() {
     Math.min(MAX_VICTORY_SCORE, Number(currentVictoryScore.value) || DEFAULT_VICTORY_SCORE),
   );
   createLoading.value = true;
-  props.send({ type: MSG_SEND.CREATE, playerName: name, victoryScore });
+  props.send({
+    type: MSG_SEND.CREATE,
+    playerName: name,
+    victoryScore,
+    bonusAfterSecondHotDice: currentBonusAfter2ndHotDice.value,
+  });
 }
 
 function doJoin() {
@@ -212,6 +224,7 @@ onUnmounted(() => {
 
 function openConfigModal() {
   tempVictoryScore.value = currentVictoryScore.value || DEFAULT_VICTORY_SCORE;
+  tempBonusAfter2ndHotDice.value = currentBonusAfter2ndHotDice.value;
   showConfigModal.value = true;
 }
 
@@ -224,10 +237,12 @@ function applyConfig() {
     return;
   }
   currentVictoryScore.value = clamped;
+  currentBonusAfter2ndHotDice.value = !!tempBonusAfter2ndHotDice.value;
   props.send({
     type: MSG_SEND.UPDATE_CONFIG,
     gameCode: code,
     victoryScore: clamped,
+    bonusAfterSecondHotDice: currentBonusAfter2ndHotDice.value,
   });
   showConfigModal.value = false;
 }
@@ -412,6 +427,20 @@ function applyConfig() {
       </p>
     </div>
 
+    <div class="config-field">
+      <label class="config-label config-label--inline">
+        <input
+          v-model="tempBonusAfter2ndHotDice"
+          type="checkbox"
+          class="config-checkbox"
+        >
+        <span>Hot dice bonus per turn</span>
+      </label>
+      <p class="config-hint">
+        1st hot dice: +200 pts · siguientes: +300% sobre el bonus anterior (200 → 800 → 3200…).
+      </p>
+    </div>
+
     <template #footer>
       <button
         type="button"
@@ -561,6 +590,17 @@ function applyConfig() {
   gap: 0.3rem;
   font-size: 0.9rem;
   color: #e5e7eb;
+}
+
+.config-label--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.config-checkbox {
+  width: 1rem;
+  height: 1rem;
 }
 
 .config-input {

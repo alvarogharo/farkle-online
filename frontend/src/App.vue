@@ -141,9 +141,13 @@ onMounted(() => {
       }, waitForAnimation);
     } else if (data.type === MSG.HOT_DICE) {
       const hotDicePlayerName = players.value[currentPlayerIndex.value]?.name || msg.playerDefault;
-      const hotDiceMsg = myPlayerIndex.value === currentPlayerIndex.value
+      const hotDiceMsgBase = myPlayerIndex.value === currentPlayerIndex.value
         ? msg.hotDiceSelf
         : msg.hotDiceOther(hotDicePlayerName);
+      const bonus = typeof data.hotDiceBonus === 'number' ? data.hotDiceBonus : 0;
+      const hotDiceMsg = bonus > 0
+        ? `${hotDiceMsgBase} (+${bonus} bonus)`
+        : hotDiceMsgBase;
       showToast(hotDiceMsg, 'success');
     } else if (data.type === MSG.TURN_CHANGED) {
       const turnMsg = data.message || msg.turnChanged;
@@ -567,8 +571,13 @@ onBeforeUnmount(() => {
         :key="move.id"
         class="saved-group"
       >
-        <span class="saved-label">{{ msg.lotLabel(move.id) }}:</span>
-        <div class="saved-dice-list">
+        <span class="saved-label">
+          {{ move.isBonus ? 'Hot dice bonus' : msg.lotLabel(move.id) }}:
+        </span>
+        <div
+          v-if="!move.isBonus"
+          class="saved-dice-list"
+        >
           <Die
             v-for="(valor, idx) in move.values"
             :key="idx"

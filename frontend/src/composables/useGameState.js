@@ -87,6 +87,7 @@ export function useGameState(myPlayerIndex) {
       id: m.id ?? 0,
       values: m.values || [],
       points: m.points ?? 0,
+      isBonus: !!m.isBonus,
     }));
 
     if (!rollResultPending.value) isRolling.value = false;

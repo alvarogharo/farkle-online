@@ -77,6 +77,7 @@ type InMessage struct {
 	Values       []int  `json:"values"`
 	Index        int    `json:"index"`
 	VictoryScore int    `json:"victoryScore"`
+	BonusAfterSecondHotDice bool `json:"bonusAfterSecondHotDice"`
 }
 
 type Hub struct {
@@ -104,6 +105,7 @@ type TurnMove struct {
 	ID     int   `json:"id"`
 	Values []int `json:"values"`
 	Points int   `json:"points"`
+	IsBonus bool `json:"isBonus"`
 }
 
 // appendFinishedGameToHistory guarda la partida recién terminada en el historial.
@@ -140,6 +142,9 @@ type Game struct {
 	turnMoves              []TurnMove
 	hasApartadoThisRoll    bool
 	victoryScore           int
+	bonusAfterSecondHotDice bool
+	hotDiceCountThisTurn    int
+	lastHotDiceBonus        int
 	finalRoundTriggerIndex int // -1 si no ha pasado
 	finalRoundPlayedExtra  []bool
 	winnerIndex            int              // -1 si la partida sigue
@@ -289,6 +294,8 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 		g.dice = nil
 		g.selectedIndices = nil
 		g.hasApartadoThisRoll = false
+		g.hotDiceCountThisTurn = 0
+		g.lastHotDiceBonus = 0
 
 		next := g.nextActivePlayerIndex(g.currentPlayerIndex)
 		if next >= 0 {
@@ -404,6 +411,7 @@ func (c *Client) handleCreate(msg InMessage) {
 		playerNames:            make([]string, Cfg.NumPlayers),
 		totals:                 make([]int, Cfg.NumPlayers),
 		victoryScore:           victoryScore,
+		bonusAfterSecondHotDice: msg.BonusAfterSecondHotDice,
 		finalRoundTriggerIndex: invalidIndex,
 		finalRoundPlayedExtra:  make([]bool, Cfg.NumPlayers),
 		winnerIndex:            invalidIndex,
@@ -555,6 +563,8 @@ func (c *Client) handleRestartGame(msg InMessage) {
 	g.turnPoints = 0
 	g.turnMoves = nil
 	g.hasApartadoThisRoll = false
+	g.hotDiceCountThisTurn = 0
+	g.lastHotDiceBonus = 0
 	g.finalRoundTriggerIndex = invalidIndex
 	g.finalRoundPlayedExtra = make([]bool, len(g.clients))
 	g.winnerIndex = invalidIndex
@@ -609,6 +619,9 @@ func (c *Client) handleUpdateConfig(msg InMessage) {
 	}
 
 	g.victoryScore = victoryScore
+	g.bonusAfterSecondHotDice = msg.BonusAfterSecondHotDice
+	g.hotDiceCountThisTurn = 0
+	g.lastHotDiceBonus = 0
 
 	// Notificar el nuevo estado a todos los jugadores en el lobby
 	go c.hub.broadcastGameState(c.gameCode)
@@ -687,20 +700,21 @@ func (h *Hub) broadcastGameState(gameCode string) {
 		gameHistory = []map[string]any{}
 	}
 	state := map[string]any{
-		jsonKeyType:              msgGameState,
-		"players":                players,
-		"gameStarted":            g.gameStarted,
-		"currentPlayerIndex":     g.currentPlayerIndex,
-		"dice":                   g.dice,
-		"selectedIndices":        g.selectedIndices,
-		"remainingDiceCount":     remainingCount,
-		"turnPoints":             g.turnPoints,
-		"turnMoves":              turnMoves,
-		"victoryScore":           g.victoryScore,
-		"finalRoundTriggerIndex": g.finalRoundTriggerIndex,
-		"winnerIndex":            g.winnerIndex,
-		"status":                 status,
-		"gameHistory":            gameHistory,
+		jsonKeyType:               msgGameState,
+		"players":                 players,
+		"gameStarted":             g.gameStarted,
+		"bonusAfterSecondHotDice": g.bonusAfterSecondHotDice,
+		"currentPlayerIndex":      g.currentPlayerIndex,
+		"dice":                    g.dice,
+		"selectedIndices":         g.selectedIndices,
+		"remainingDiceCount":      remainingCount,
+		"turnPoints":              g.turnPoints,
+		"turnMoves":               turnMoves,
+		"victoryScore":            g.victoryScore,
+		"finalRoundTriggerIndex":  g.finalRoundTriggerIndex,
+		"winnerIndex":             g.winnerIndex,
+		"status":                  status,
+		"gameHistory":             gameHistory,
 	}
 	h.broadcastToGame(gameCode, state)
 }
@@ -778,6 +792,8 @@ func (c *Client) handleRoll() {
 		g.turnMoves = nil
 		g.dice = nil
 		g.selectedIndices = nil
+		g.hotDiceCountThisTurn = 0
+		g.lastHotDiceBonus = 0
 
 		// Pasar turno al siguiente jugador activo, si lo hay
 		next := g.nextActivePlayerIndex(g.currentPlayerIndex)
@@ -977,11 +993,37 @@ func (c *Client) handleApartar() {
 		}
 	}
 	if allHeld {
+		// Contabilizar hot dice y aplicar bonus si la regla está activa
+		bonusApplied := 0
+		if g.bonusAfterSecondHotDice {
+			g.hotDiceCountThisTurn++
+			if g.hotDiceCountThisTurn >= 1 {
+				if g.lastHotDiceBonus == 0 {
+					// Primer hot dice: 200 puntos
+					g.lastHotDiceBonus = 200
+				} else {
+					// A partir del segundo: 300% más que el anterior (es decir, x4)
+					g.lastHotDiceBonus = g.lastHotDiceBonus * 4
+				}
+				g.turnPoints += g.lastHotDiceBonus
+				bonusApplied = g.lastHotDiceBonus
+
+				// Registrar el bonus como un "set aside" especial en el turno
+				g.turnMoves = append(g.turnMoves, TurnMove{
+					ID:      len(g.turnMoves) + 1,
+					Values:  []int{},
+					Points:  g.lastHotDiceBonus,
+					IsBonus: true,
+				})
+			}
+		}
+
 		g.dice = nil
 		g.mu.Unlock()
 		c.hub.broadcastToGame(c.gameCode, map[string]any{
-			jsonKeyType: msgHotDice,
-			jsonKeyMsg:  "¡Mano limpia! Puedes volver a tirar los 6 dados",
+			jsonKeyType:  msgHotDice,
+			jsonKeyMsg:   "¡Mano limpia! Puedes volver a tirar los 6 dados",
+			"hotDiceBonus": bonusApplied,
 		})
 		c.hub.broadcastGameState(c.gameCode)
 		return
@@ -1041,6 +1083,8 @@ func (c *Client) handleBank() {
 	g.dice = nil
 	g.selectedIndices = nil
 	g.hasApartadoThisRoll = false
+	g.hotDiceCountThisTurn = 0
+	g.lastHotDiceBonus = 0
 
 	if g.finalRoundTriggerIndex == invalidIndex && g.totals[c.playerIndex] >= g.victoryScore {
 		g.finalRoundTriggerIndex = c.playerIndex
