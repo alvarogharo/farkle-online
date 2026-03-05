@@ -144,6 +144,7 @@ type Game struct {
 	winnerIndex            int              // -1 si la partida sigue
 	finishedAt             time.Time        // cuándo terminó la partida
 	gameHistory            []map[string]any // historial de partidas terminadas en esta sala
+	gameStarted            bool             // true tras handleStartGame; distingue lobby de partida en curso
 	mu                     sync.RWMutex
 }
 
@@ -457,9 +458,12 @@ func (c *Client) handleStartGame(msg InMessage) {
 		return
 	}
 
-	g.mu.RLock()
+	g.mu.Lock()
 	isCreator := c.playerIndex == 0
-	g.mu.RUnlock()
+	if isCreator {
+		g.gameStarted = true
+	}
+	g.mu.Unlock()
 
 	if !isCreator {
 		c.sendError("Only the creator can start the game")
@@ -606,6 +610,7 @@ func (h *Hub) broadcastGameState(gameCode string) {
 	state := map[string]any{
 		jsonKeyType:              msgGameState,
 		"players":                players,
+		"gameStarted":            g.gameStarted,
 		"currentPlayerIndex":     g.currentPlayerIndex,
 		"dice":                   g.dice,
 		"selectedIndices":        g.selectedIndices,

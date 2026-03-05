@@ -240,6 +240,7 @@ const restartGame = () => {
 };
 
 const rollDices = () => {
+  if (farklePendingTransition.value) return;
   if (!isMyTurn.value) return;
   if (isRolling.value) return;
   if (winnerIndex.value !== null) return;
@@ -268,6 +269,7 @@ const rollDices = () => {
 };
 
 const toggleSelect = (index) => {
+  if (farklePendingTransition.value) return;
   if (!isMyTurn.value) return;
   if (isTurnEnding.value || isRolling.value) return;
   if (winnerIndex.value !== null) return;
@@ -283,6 +285,7 @@ const toggleSelect = (index) => {
 const hasSelection = computed(() => selected.value.some((v) => v));
 
 const apartarSeleccionados = () => {
+  if (farklePendingTransition.value) return;
   if (!hasSelection.value || !isMyTurn.value) return;
   if (isRolling.value || winnerIndex.value !== null) return;
   if (!hasRolledThisTurn.value || !dices.value.length) return;
@@ -298,6 +301,7 @@ const canBank = computed(() =>
 );
 
 const bankTurn = () => {
+  if (farklePendingTransition.value) return;
   if (!canBank.value || !isMyTurn.value) return;
   ws.send({ type: MSG_SEND.BANK });
 };
@@ -505,7 +509,7 @@ onBeforeUnmount(() => {
             :value="die.value"
             :is-rolling="isRolling && !die.held"
             :selected="selected[index] && !die.held"
-            :disabled="farklePendingTransition || !isMyTurn || winnerIndex !== null || die.held || !hasRolledThisTurn"
+            :disabled="!isMyTurn || winnerIndex !== null || die.held || !hasRolledThisTurn"
             :held="die.held"
             @toggle="toggleSelect(index)"
           />
