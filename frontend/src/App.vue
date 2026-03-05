@@ -237,6 +237,10 @@ const isHost = computed(() =>
   && myPlayerIndex.value === 0,
 );
 
+const displayTurnMoves = computed(() =>
+  [...turnMoves.value].slice().reverse(),
+);
+
 const restartGame = () => {
   if (!isHost.value) return;
   if (!gameCode.value) return;
@@ -567,7 +571,7 @@ onBeforeUnmount(() => {
     >
       <h3>{{ msg.savedSection }}</h3>
       <div
-        v-for="move in turnMoves"
+        v-for="move in displayTurnMoves"
         :key="move.id"
         class="saved-group"
       >
