@@ -243,6 +243,24 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 
 	gameCode := client.gameCode
 
+	// Si el creador abandona la partida y aún quedan jugadores, la partida termina para todos.
+	if client.playerIndex == 0 {
+		// Elegimos como ganador al primer jugador restante (por simplicidad)
+		winnerIndex := remaining[0]
+		g.winnerIndex = winnerIndex
+		g.finishedAt = time.Now()
+		g.appendFinishedGameToHistory()
+		g.mu.Unlock()
+
+		h.broadcastToGame(gameCode, map[string]any{
+			jsonKeyType:   msgPlayerDisconnected,
+			jsonKeyMsg:    "El creador se ha desconectado. La partida ha terminado.",
+			jsonKeyWinner: winnerIndex,
+		})
+		h.broadcastGameState(gameCode)
+		return
+	}
+
 	// Si solo queda un jugador, ese jugador gana por desconexión del resto
 	if len(remaining) == 1 {
 		winnerIndex := remaining[0]
@@ -260,7 +278,23 @@ func (h *Hub) handleClientDisconnect(client *Client) {
 		return
 	}
 
-	// Si quedan varios jugadores, la partida continúa sin el jugador desconectado
+	// Si quedan varios jugadores, la partida continúa sin el jugador desconectado.
+	// Si el que se ha desconectado tenía el turno, terminamos su turno
+	// descartando sus puntos y pasamos el turno al siguiente jugador activo.
+	if client.playerIndex == g.currentPlayerIndex {
+		// El jugador que se va pierde cualquier punto acumulado en el turno
+		g.turnPoints = 0
+		g.turnMoves = nil
+		g.dice = nil
+		g.selectedIndices = nil
+		g.hasApartadoThisRoll = false
+
+		next := g.nextActivePlayerIndex(g.currentPlayerIndex)
+		if next >= 0 {
+			g.currentPlayerIndex = next
+		}
+	}
+
 	g.mu.Unlock()
 	h.broadcastGameState(gameCode)
 }

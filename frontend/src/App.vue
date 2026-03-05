@@ -389,7 +389,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="game-over-actions">
           <button
-            v-if="isHost"
+            v-if="isHost && !finishedByDisconnect"
             type="button"
             class="btn btn--primary"
             @click="restartGame"
